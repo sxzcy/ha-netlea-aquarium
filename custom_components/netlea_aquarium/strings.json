@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Netlea Aquarium",
+        "description": "Enter your Netlea phone number. The integration will send an SMS login code.{details}",
+        "data": {
+          "phone": "Phone number"
+        }
+      },
+      "code": {
+        "title": "SMS code",
+        "description": "Enter the SMS code sent by Netlea.",
+        "data": {
+          "code": "SMS code"
+        }
+      },
+      "device": {
+        "title": "Select device group",
+        "description": "Select the Netlea device group to add.",
+        "data": {
+          "device": "Device group"
+        }
+      },
+      "reauth_user": {
+        "title": "Reauthenticate Netlea",
+        "description": "Enter your phone number to send a new SMS code.{details}",
+        "data": {
+          "phone": "Phone number"
+        }
+      },
+      "reauth_code": {
+        "title": "Reauthenticate Netlea",
+        "description": "Enter the new SMS code.",
+        "data": {
+          "code": "SMS code"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "device_not_found": "Device group not found",
+      "invalid_phone": "Invalid phone number",
+      "invalid_auth": "Invalid authentication",
+      "no_devices": "No devices found",
+      "send_code_failed": "Failed to send SMS code"
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "reauth_successful": "Reauthentication successful"
+    }
+  },
+  "entity": {
+    "light": {
+      "aquarium_light": {
+        "name": "Aquarium Light"
+      }
+    },
+    "button": {
+      "temp_on": {
+        "name": "Temporary On"
+      },
+      "temp_off": {
+        "name": "Temporary Off"
+      },
+      "resume_schedule": {
+        "name": "Resume Schedule"
+      }
+    },
+    "sensor": {
+      "run_mode": {
+        "name": "Run Mode"
+      },
+      "current_trip": {
+        "name": "Current Trip"
+      },
+      "reply_count": {
+        "name": "Reply Count"
+      },
+      "online_count": {
+        "name": "Online Count"
+      },
+      "last_command": {
+        "name": "Last Command"
+      }
+    },
+    "binary_sensor": {
+      "has_travel": {
+        "name": "Has Schedule"
+      },
+      "travel_running": {
+        "name": "Schedule Running"
+      }
+    }
+  }
+}

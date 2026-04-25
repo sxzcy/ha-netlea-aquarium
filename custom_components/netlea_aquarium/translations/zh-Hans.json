@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "尼特利鱼缸灯",
+        "description": "输入尼特利账号手机号，集成会发送短信验证码。{details}",
+        "data": {
+          "phone": "手机号"
+        }
+      },
+      "code": {
+        "title": "短信验证码",
+        "description": "输入尼特利短信验证码。",
+        "data": {
+          "code": "验证码"
+        }
+      },
+      "device": {
+        "title": "选择设备组",
+        "description": "选择要接入 Home Assistant 的尼特利设备组。",
+        "data": {
+          "device": "设备组"
+        }
+      },
+      "reauth_user": {
+        "title": "重新登录尼特利",
+        "description": "输入手机号，重新发送短信验证码。{details}",
+        "data": {
+          "phone": "手机号"
+        }
+      },
+      "reauth_code": {
+        "title": "重新登录尼特利",
+        "description": "输入新的短信验证码。",
+        "data": {
+          "code": "验证码"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "连接失败",
+      "device_not_found": "未找到设备组",
+      "invalid_phone": "手机号格式错误",
+      "invalid_auth": "认证失败",
+      "no_devices": "没有找到设备",
+      "send_code_failed": "发送验证码失败"
+    },
+    "abort": {
+      "already_configured": "设备已配置",
+      "reauth_successful": "重新登录成功"
+    }
+  },
+  "entity": {
+    "light": {
+      "aquarium_light": {
+        "name": "鱼缸灯"
+      }
+    },
+    "button": {
+      "temp_on": {
+        "name": "临时开灯"
+      },
+      "temp_off": {
+        "name": "临时关灯"
+      },
+      "resume_schedule": {
+        "name": "恢复行程"
+      }
+    },
+    "sensor": {
+      "run_mode": {
+        "name": "运行模式"
+      },
+      "current_trip": {
+        "name": "当前行程"
+      },
+      "reply_count": {
+        "name": "回执灯数"
+      },
+      "online_count": {
+        "name": "在线灯数"
+      },
+      "last_command": {
+        "name": "最后命令"
+      }
+    },
+    "binary_sensor": {
+      "has_travel": {
+        "name": "有行程"
+      },
+      "travel_running": {
+        "name": "行程运行中"
+      }
+    }
+  }
+}

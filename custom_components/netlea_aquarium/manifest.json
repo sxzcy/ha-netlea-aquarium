@@ -1,0 +1,16 @@
+{
+  "domain": "netlea_aquarium",
+  "name": "Netlea Aquarium",
+  "codeowners": [
+    "@sxzcy"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/sxzcy/ha-netlea-aquarium",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/sxzcy/ha-netlea-aquarium/issues",
+  "loggers": [
+    "custom_components.netlea_aquarium"
+  ],
+  "requirements": [],
+  "version": "0.1.0"
+}
