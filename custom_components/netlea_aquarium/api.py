@@ -18,6 +18,8 @@ from .const import (
     CONF_TOKEN,
     CONF_USER_ID,
     CONF_WS_URL,
+    DEFAULT_REQUEST_RETRIES,
+    DEFAULT_REQUEST_TIMEOUT,
     WS_URL,
 )
 
@@ -28,6 +30,10 @@ class NetleaError(Exception):
 
 class NetleaAuthError(NetleaError):
     """Authentication or session error."""
+
+
+class NetleaConnectionError(NetleaError):
+    """Temporary network connection error."""
 
 
 @dataclass(slots=True)
@@ -409,14 +415,29 @@ class NetleaClient:
         payload: dict[str, Any] | None = None,
     ) -> Any:
         """Make one Netlea HTTP request."""
-        async with self._session.request(
-            method,
-            url,
-            params=params,
-            json=payload,
-            headers=api_headers(token),
-        ) as response:
-            text = await response.text()
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_REQUEST_TIMEOUT)
+        last_error: Exception | None = None
+        for attempt in range(1, DEFAULT_REQUEST_RETRIES + 1):
+            try:
+                async with self._session.request(
+                    method,
+                    url,
+                    params=params,
+                    json=payload,
+                    headers=api_headers(token),
+                    timeout=timeout,
+                ) as response:
+                    text = await response.text()
+                break
+            except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as err:
+                last_error = err
+                if attempt >= DEFAULT_REQUEST_RETRIES:
+                    raise NetleaConnectionError(
+                        f"Netlea cloud request failed after {attempt} attempts: {err}"
+                    ) from err
+                await asyncio.sleep(min(2.0, 0.5 * attempt))
+        else:
+            raise NetleaConnectionError(f"Netlea cloud request failed: {last_error}")
 
         if response.status in (401, 403):
             raise NetleaAuthError(text)
@@ -495,9 +516,29 @@ class NetleaClient:
         """Send one websocket control frame."""
         if not self.token:
             raise NetleaAuthError("缺少 token")
+        last_error: Exception | None = None
+        for attempt in range(1, DEFAULT_REQUEST_RETRIES + 1):
+            try:
+                return await self._async_send_frame_once(target_address, frame, timeout)
+            except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as err:
+                last_error = err
+                if attempt >= DEFAULT_REQUEST_RETRIES:
+                    raise NetleaConnectionError(
+                        f"Netlea websocket request failed after {attempt} attempts: {err}"
+                    ) from err
+                await asyncio.sleep(min(2.0, 0.5 * attempt))
+        raise NetleaConnectionError(f"Netlea websocket request failed: {last_error}")
+
+    async def _async_send_frame_once(self, target_address: str, frame: str, timeout: float) -> ControlResult:
+        """Send one websocket control frame without retry."""
         replies: list[Any] = []
         expected_addresses = split_addresses(target_address)
-        async with self._session.ws_connect(self.ws_url, headers={"token": self.token}, heartbeat=20) as ws:
+        async with self._session.ws_connect(
+            self.ws_url,
+            headers={"token": self.token},
+            heartbeat=20,
+            timeout=DEFAULT_REQUEST_TIMEOUT,
+        ) as ws:
             payload = {
                 "msgType": 1002,
                 "msgBody": {

@@ -17,6 +17,7 @@ from .api import (
     ControlResult,
     NetleaAuthError,
     NetleaClient,
+    NetleaConnectionError,
     NetleaError,
     parse_status_log,
 )
@@ -27,6 +28,7 @@ from .const import (
     CONF_CONTROL_REAL_ADDRESS,
     CONF_EQUIPMENT_USER_ID,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STALE_FAILURES,
     DOMAIN,
 )
 
@@ -49,6 +51,7 @@ class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.equipment_user_id = str(entry.data.get(CONF_EQUIPMENT_USER_ID) or "")
         self.control_real_address = str(entry.data.get(CONF_CONTROL_REAL_ADDRESS) or "").upper()
         self._last_control: dict[str, Any] | None = None
+        self._connection_failures = 0
 
     @property
     def device_key(self) -> str:
@@ -67,9 +70,24 @@ class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             devices = await self.client.async_fetch_devices()
         except NetleaAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
+        except NetleaConnectionError as err:
+            self._connection_failures += 1
+            if self.data and self._connection_failures <= DEFAULT_STALE_FAILURES:
+                data = deepcopy(self.data)
+                data["_last_update_error"] = str(err)
+                data["_last_update_error_time"] = dt_util.now().isoformat()
+                _LOGGER.debug(
+                    "Keeping stale Netlea data after temporary connection failure %s/%s: %s",
+                    self._connection_failures,
+                    DEFAULT_STALE_FAILURES,
+                    err,
+                )
+                return data
+            raise UpdateFailed(str(err)) from err
         except NetleaError as err:
             raise UpdateFailed(str(err)) from err
 
+        self._connection_failures = 0
         for device in devices:
             equipment_user_id = str(device.get("equipmentUserId") or "")
             real_address = str(device.get("controlRealAddress") or "").upper()
