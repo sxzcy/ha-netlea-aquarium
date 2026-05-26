@@ -25,19 +25,19 @@ BUTTONS: tuple[NetleaButtonEntityDescription, ...] = (
     NetleaButtonEntityDescription(
         key=ACTION_TEMP_ON,
         translation_key="temp_on",
-        icon="mdi:lightbulb-on",
+        icon="mdi:lightbulb-on-outline",
         action=ACTION_TEMP_ON,
     ),
     NetleaButtonEntityDescription(
         key=ACTION_TEMP_OFF,
         translation_key="temp_off",
-        icon="mdi:lightbulb-off",
+        icon="mdi:lightbulb-off-outline",
         action=ACTION_TEMP_OFF,
     ),
     NetleaButtonEntityDescription(
         key=ACTION_RESUME_SCHEDULE,
         translation_key="resume_schedule",
-        icon="mdi:calendar-sync",
+        icon="mdi:calendar-sync-outline",
         action=ACTION_RESUME_SCHEDULE,
     ),
 )

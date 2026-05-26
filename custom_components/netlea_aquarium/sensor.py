@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -45,25 +46,28 @@ SENSORS: tuple[NetleaSensorEntityDescription, ...] = (
     NetleaSensorEntityDescription(
         key="current_trip",
         translation_key="current_trip",
-        icon="mdi:calendar-clock",
+        icon="mdi:calendar-clock-outline",
         value_fn=lambda device: current_trip_name(device) or "无",
     ),
     NetleaSensorEntityDescription(
         key="reply_count",
         translation_key="reply_count",
-        icon="mdi:counter",
+        icon="mdi:check-network-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: _last_control(device).get("reply_count"),
     ),
     NetleaSensorEntityDescription(
         key="online_count",
         translation_key="online_count",
         icon="mdi:access-point-network",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_online_count,
     ),
     NetleaSensorEntityDescription(
         key="last_command",
         translation_key="last_command",
         icon="mdi:gesture-tap-button",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: _last_control(device).get("action"),
     ),
 )

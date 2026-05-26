@@ -29,6 +29,7 @@ class NetleaAquariumLight(NetleaBaseEntity, LightEntity):
     """Netlea aquarium light group."""
 
     _attr_name = None
+    _attr_icon = "mdi:led-strip-variant"
     _attr_supported_color_modes = {ColorMode.ONOFF}
     _attr_color_mode = ColorMode.ONOFF
     _attr_translation_key = "aquarium_light"
@@ -50,10 +51,14 @@ class NetleaAquariumLight(NetleaBaseEntity, LightEntity):
             "mode": mode_summary(self.device),
             "current_trip": current_trip_name(self.device),
             "control_real_address": self.device.get("controlRealAddress"),
+            "expected_addresses": last_control.get("expected_addresses"),
             "replied_addresses": last_control.get("replied_addresses"),
+            "missing_addresses": last_control.get("missing_addresses"),
             "last_reply_count": last_control.get("reply_count"),
             "last_command": last_control.get("action"),
             "last_frame": last_control.get("frame"),
+            "stale": self.device.get("_stale"),
+            "last_update_error": self.device.get("_last_update_error"),
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:

@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "尼特利鱼缸灯",
+        "title": "尼特利鱼缸",
         "description": "输入尼特利账号手机号，集成会发送短信验证码。{details}",
         "data": {
           "phone": "手机号"
@@ -47,13 +47,14 @@
     },
     "abort": {
       "already_configured": "设备已配置",
+      "device_not_found": "未找到设备组",
       "reauth_successful": "重新登录成功"
     }
   },
   "entity": {
     "light": {
       "aquarium_light": {
-        "name": "鱼缸灯"
+        "name": "主灯"
       }
     },
     "button": {
@@ -64,32 +65,32 @@
         "name": "临时关灯"
       },
       "resume_schedule": {
-        "name": "恢复行程"
+        "name": "恢复日程"
       }
     },
     "sensor": {
       "run_mode": {
-        "name": "运行模式"
+        "name": "灯光模式"
       },
       "current_trip": {
-        "name": "当前行程"
+        "name": "当前日程"
       },
       "reply_count": {
-        "name": "回执灯数"
+        "name": "控制回执"
       },
       "online_count": {
         "name": "在线灯数"
       },
       "last_command": {
-        "name": "最后命令"
+        "name": "最后操作"
       }
     },
     "binary_sensor": {
       "has_travel": {
-        "name": "有行程"
+        "name": "已配置日程"
       },
       "travel_running": {
-        "name": "行程运行中"
+        "name": "日程运行中"
       }
     }
   }

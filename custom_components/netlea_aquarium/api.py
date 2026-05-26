@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 import aiohttp
+from homeassistant.util import dt as dt_util
 
 from .const import (
     API_BASE,
@@ -36,13 +37,19 @@ class NetleaConnectionError(NetleaError):
     """Temporary network connection error."""
 
 
+class NetleaControlAckError(NetleaConnectionError):
+    """Control command did not receive a valid device acknowledgement."""
+
+
 @dataclass(slots=True)
 class ControlResult:
     """Result of one websocket control command."""
 
     frame: str
     replies: list[Any]
+    expected_addresses: list[str]
     replied_addresses: list[str]
+    missing_addresses: list[str]
     legacy_state: dict[str, Any] | None
 
 
@@ -72,6 +79,58 @@ def extract(data: Any, *paths: str) -> Any:
         if current not in (None, ""):
             return current
     return None
+
+
+def as_int(value: Any, default: int | None = None) -> int | None:
+    """Return a cloud value as int when possible."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return default
+        try:
+            return int(text)
+        except ValueError:
+            return default
+    return default
+
+
+def as_bool(value: Any) -> bool | None:
+    """Return a cloud value as bool when possible."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+    return None
+
+
+def _api_code(value: Any) -> int | None:
+    """Normalize a Netlea API code."""
+    return as_int(value)
+
+
+def _is_transient_http_status(status: int) -> bool:
+    """Return whether one HTTP status should be retried."""
+    return status == 429 or 500 <= status < 600
+
+
+def _is_transient_api_code(code: int | None) -> bool:
+    """Return whether one JSON API code should be retried."""
+    return code in {408, 425, 429, 500, 502, 503, 504}
+
+
+async def _sleep_before_retry(attempt: int) -> None:
+    """Back off briefly before a retry."""
+    await asyncio.sleep(min(4.0, 0.5 * (2 ** (attempt - 1))))
 
 
 def parse_status_log(row: dict[str, Any]) -> dict[str, Any]:
@@ -187,13 +246,14 @@ def active_on_day(day_list: Any, now: datetime) -> bool:
     """Check whether one trip is enabled for today."""
     if not isinstance(day_list, list) or len(day_list) < 7:
         return True
-    return str(day_list[now.weekday()]) == "1"
+    enabled = as_bool(day_list[now.weekday()])
+    return True if enabled is None else enabled
 
 
 def active_in_time_window(trip: dict[str, Any], now: datetime) -> bool:
     """Check whether the current time falls into one trip."""
-    start = int(trip.get("startH") or 0) * 60 + int(trip.get("startM") or 0)
-    end = int(trip.get("endH") or 0) * 60 + int(trip.get("endM") or 0)
+    start = (as_int(trip.get("startH"), 0) or 0) * 60 + (as_int(trip.get("startM"), 0) or 0)
+    end = (as_int(trip.get("endH"), 0) or 0) * 60 + (as_int(trip.get("endM"), 0) or 0)
     current = now.hour * 60 + now.minute
     if start == end:
         return True
@@ -202,12 +262,16 @@ def active_in_time_window(trip: dict[str, Any], now: datetime) -> bool:
     return current >= start or current < end
 
 
-def find_active_main_trip(status: dict[str, Any]) -> dict[str, Any] | None:
+def find_active_main_trip(status: dict[str, Any], now: datetime | None = None) -> dict[str, Any] | None:
     """Find the currently active main-light trip."""
-    now = datetime.now()
+    now = now or dt_util.now()
     trips = ((status.get("masterhand") or {}).get("travelList")) or []
+    if not isinstance(trips, list):
+        return None
     for trip in trips:
-        if int(trip.get("enable") or 0) != 1:
+        if not isinstance(trip, dict):
+            continue
+        if as_int(trip.get("enable"), 0) != 1:
             continue
         if not active_on_day(trip.get("dayList"), now):
             continue
@@ -227,9 +291,10 @@ def has_main_travel(row: dict[str, Any]) -> bool:
     status = parse_status_log(row)
     value = status.get("haveTravel")
     if isinstance(value, dict) and "main" in value:
-        return bool(value.get("main"))
+        parsed = as_bool(value.get("main"))
+        return bool(parsed)
     trips = ((status.get("masterhand") or {}).get("travelList")) or []
-    return bool(trips)
+    return bool(trips) if isinstance(trips, list) else False
 
 
 def is_main_travel_running(row: dict[str, Any]) -> bool:
@@ -237,14 +302,16 @@ def is_main_travel_running(row: dict[str, Any]) -> bool:
     status = parse_status_log(row)
     value = status.get("travelRunning")
     if isinstance(value, dict) and "main" in value:
-        return bool(value.get("main"))
-    return bool((status.get("masterhand") or {}).get("traveRunning"))
+        parsed = as_bool(value.get("main"))
+        return bool(parsed)
+    parsed = as_bool((status.get("masterhand") or {}).get("traveRunning"))
+    return bool(parsed)
 
 
 def is_main_light_on(row: dict[str, Any]) -> bool | None:
     """Return current on/off state."""
     status = parse_status_log(row)
-    onoff = status.get("onoff")
+    onoff = as_int(status.get("onoff"))
     if onoff in (0, 1):
         return bool(onoff)
     return None
@@ -254,7 +321,7 @@ def mode_summary(row: dict[str, Any]) -> str:
     """Build a concise Chinese mode summary."""
     if is_main_travel_running(row):
         name = current_trip_name(row)
-        return f"行程中{name and f'（{name}）' or ''}"
+        return f"日程中{name and f'（{name}）' or ''}"
     is_on = is_main_light_on(row)
     if is_on is True:
         return "临时开灯"
@@ -268,15 +335,20 @@ def mode_summary(row: dict[str, Any]) -> str:
 def infer_resume_lamp_state(target: dict[str, Any] | None) -> int:
     """Infer whether the current schedule should be on when resuming."""
     status = parse_status_log(target or {})
-    travel_running = (status.get("travelRunning") or {}).get("main")
-    if isinstance(travel_running, bool):
-        return 1 if travel_running else 0
     if find_active_main_trip(status):
         return 1
-    have_travel = (status.get("haveTravel") or {}).get("main")
-    if have_travel:
-        return 1
-    onoff = status.get("onoff")
+    have_travel_value = status.get("haveTravel")
+    have_travel = have_travel_value.get("main") if isinstance(have_travel_value, dict) else have_travel_value
+    if as_bool(have_travel):
+        return 0
+    travel_running_value = status.get("travelRunning")
+    travel_running = (
+        travel_running_value.get("main") if isinstance(travel_running_value, dict) else travel_running_value
+    )
+    parsed_travel_running = as_bool(travel_running)
+    if parsed_travel_running is not None:
+        return 1 if parsed_travel_running else 0
+    onoff = as_int(status.get("onoff"))
     return 1 if onoff == 1 else 0
 
 
@@ -427,36 +499,50 @@ class NetleaClient:
                     headers=api_headers(token),
                     timeout=timeout,
                 ) as response:
+                    status = response.status
                     text = await response.text()
-                break
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as err:
                 last_error = err
                 if attempt >= DEFAULT_REQUEST_RETRIES:
                     raise NetleaConnectionError(
                         f"Netlea cloud request failed after {attempt} attempts: {err}"
                     ) from err
-                await asyncio.sleep(min(2.0, 0.5 * attempt))
-        else:
-            raise NetleaConnectionError(f"Netlea cloud request failed: {last_error}")
+                await _sleep_before_retry(attempt)
+                continue
 
-        if response.status in (401, 403):
-            raise NetleaAuthError(text)
-        if response.status >= 400:
-            raise NetleaError(f"HTTP {response.status}: {text[:300]}")
+            if status in (401, 403):
+                raise NetleaAuthError(text)
+            if _is_transient_http_status(status):
+                last_error = NetleaConnectionError(f"HTTP {status}: {text[:300]}")
+                if attempt >= DEFAULT_REQUEST_RETRIES:
+                    raise last_error
+                await _sleep_before_retry(attempt)
+                continue
+            if status >= 400:
+                raise NetleaError(f"HTTP {status}: {text[:300]}")
 
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as err:
-            raise NetleaError(f"返回不是合法 JSON: {text[:300]}") from err
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as err:
+                raise NetleaError(f"返回不是合法 JSON: {text[:300]}") from err
 
-        if isinstance(data, dict):
-            code = data.get("code")
-            msg = str(data.get("msg") or "").strip()
-            if code in (401, 403, 409):
-                raise NetleaAuthError(msg or text[:300])
-            if code not in (None, 200):
-                raise NetleaError(msg or text[:300])
-        return data
+            if isinstance(data, dict):
+                raw_code = data.get("code")
+                code = _api_code(raw_code)
+                msg = str(data.get("msg") or "").strip()
+                if code in (401, 403, 409):
+                    raise NetleaAuthError(msg or text[:300])
+                if _is_transient_api_code(code):
+                    last_error = NetleaConnectionError(msg or text[:300])
+                    if attempt >= DEFAULT_REQUEST_RETRIES:
+                        raise last_error
+                    await _sleep_before_retry(attempt)
+                    continue
+                if raw_code not in (None, "") and code != 200:
+                    raise NetleaError(msg or text[:300])
+            return data
+
+        raise NetleaConnectionError(f"Netlea cloud request failed: {last_error}")
 
     async def async_send_code(self, phone: str) -> str:
         """Send an SMS login code."""
@@ -510,7 +596,7 @@ class NetleaClient:
             },
         )
         rows = data.get("rows") if isinstance(data, dict) else None
-        return [normalize_device_row(row) for row in rows] if isinstance(rows, list) else []
+        return [normalize_device_row(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
     async def async_send_frame(self, target_address: str, frame: str, timeout: float = 8.0) -> ControlResult:
         """Send one websocket control frame."""
@@ -520,19 +606,32 @@ class NetleaClient:
         for attempt in range(1, DEFAULT_REQUEST_RETRIES + 1):
             try:
                 return await self._async_send_frame_once(target_address, frame, timeout)
+            except NetleaAuthError:
+                raise
+            except NetleaConnectionError as err:
+                last_error = err
+                if attempt >= DEFAULT_REQUEST_RETRIES:
+                    raise NetleaConnectionError(
+                        f"Netlea websocket request failed after {attempt} attempts: {err}"
+                    ) from err
+                await _sleep_before_retry(attempt)
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as err:
                 last_error = err
                 if attempt >= DEFAULT_REQUEST_RETRIES:
                     raise NetleaConnectionError(
                         f"Netlea websocket request failed after {attempt} attempts: {err}"
                     ) from err
-                await asyncio.sleep(min(2.0, 0.5 * attempt))
+                await _sleep_before_retry(attempt)
         raise NetleaConnectionError(f"Netlea websocket request failed: {last_error}")
 
     async def _async_send_frame_once(self, target_address: str, frame: str, timeout: float) -> ControlResult:
         """Send one websocket control frame without retry."""
         replies: list[Any] = []
         expected_addresses = split_addresses(target_address)
+        if not expected_addresses:
+            raise NetleaError("缺少控制地址")
+        expected_set = set(expected_addresses)
+        normalized_target = ",".join(expected_addresses)
         async with self._session.ws_connect(
             self.ws_url,
             headers={"token": self.token},
@@ -544,7 +643,7 @@ class NetleaClient:
                 "msgBody": {
                     "time": int(time.time() * 1000),
                     "all": "1",
-                    "topic": f"App/Control/{target_address}",
+                    "topic": f"App/Control/{normalized_target}",
                     "message": frame,
                 },
             }
@@ -559,22 +658,38 @@ class NetleaClient:
                     raw = incoming.data
                 elif incoming.type == aiohttp.WSMsgType.BINARY:
                     raw = incoming.data.decode("utf-8", errors="ignore")
+                elif incoming.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
+                    raise NetleaConnectionError("Netlea websocket closed before device reply")
+                elif incoming.type == aiohttp.WSMsgType.ERROR:
+                    raise NetleaConnectionError(f"Netlea websocket error: {ws.exception()}")
                 else:
                     continue
                 try:
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
-                if isinstance(parsed, dict) and parsed.get("code") in (401, 403, 409):
+                if isinstance(parsed, dict) and _api_code(parsed.get("code")) in (401, 403, 409):
                     raise NetleaAuthError(str(parsed.get("msg") or parsed))
+                addresses = reply_real_addresses([parsed])
+                if addresses and not any(address in expected_set for address in addresses):
+                    continue
                 replies.append(parsed)
-                if expected_addresses and len(reply_real_addresses(replies)) >= len(expected_addresses):
+                if expected_set.issubset(set(reply_real_addresses(replies))):
                     break
+
+        replied_addresses = reply_real_addresses(replies)
+        missing_addresses = [address for address in expected_addresses if address not in replied_addresses]
+        if not replied_addresses:
+            raise NetleaControlAckError(
+                f"Netlea websocket command did not receive a device reply for {normalized_target}"
+            )
 
         return ControlResult(
             frame=frame,
             replies=replies,
-            replied_addresses=reply_real_addresses(replies),
+            expected_addresses=expected_addresses,
+            replied_addresses=replied_addresses,
+            missing_addresses=missing_addresses,
             legacy_state=legacy_lamps_state_from_replies(replies),
         )
 

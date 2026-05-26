@@ -27,13 +27,13 @@ BINARY_SENSORS: tuple[NetleaBinarySensorEntityDescription, ...] = (
     NetleaBinarySensorEntityDescription(
         key="has_travel",
         translation_key="has_travel",
-        icon="mdi:calendar-check",
+        icon="mdi:calendar-check-outline",
         value_fn=has_main_travel,
     ),
     NetleaBinarySensorEntityDescription(
         key="travel_running",
         translation_key="travel_running",
-        icon="mdi:calendar-play",
+        icon="mdi:calendar-play-outline",
         value_fn=is_main_travel_running,
     ),
 )

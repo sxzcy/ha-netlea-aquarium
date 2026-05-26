@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import timedelta
 import logging
@@ -9,7 +10,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -74,6 +75,8 @@ class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._connection_failures += 1
             if self.data and self._connection_failures <= DEFAULT_STALE_FAILURES:
                 data = deepcopy(self.data)
+                data["_stale"] = True
+                data["_connection_failures"] = self._connection_failures
                 data["_last_update_error"] = str(err)
                 data["_last_update_error_time"] = dt_util.now().isoformat()
                 _LOGGER.debug(
@@ -92,6 +95,8 @@ class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             equipment_user_id = str(device.get("equipmentUserId") or "")
             real_address = str(device.get("controlRealAddress") or "").upper()
             if equipment_user_id == self.equipment_user_id or real_address == self.control_real_address:
+                device["_stale"] = False
+                device["_connection_failures"] = 0
                 if self._last_control:
                     device["_last_control"] = self._last_control
                 return device
@@ -100,20 +105,35 @@ class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_temp_on(self) -> ControlResult:
         """Temporarily turn on the main light."""
-        result = await self.client.async_temp_on(self.target_address)
-        self._apply_control_result(ACTION_TEMP_ON, result)
-        return result
+        return await self._async_control(ACTION_TEMP_ON, self.client.async_temp_on)
 
     async def async_temp_off(self) -> ControlResult:
         """Temporarily turn off the main light."""
-        result = await self.client.async_temp_off(self.target_address)
-        self._apply_control_result(ACTION_TEMP_OFF, result)
-        return result
+        return await self._async_control(ACTION_TEMP_OFF, self.client.async_temp_off)
 
     async def async_resume_schedule(self) -> ControlResult:
         """Resume schedule."""
-        result = await self.client.async_resume_schedule(self.target_address, self.data)
-        self._apply_control_result(ACTION_RESUME_SCHEDULE, result)
+        async def _resume(target_address: str) -> ControlResult:
+            return await self.client.async_resume_schedule(target_address, self.data)
+
+        return await self._async_control(ACTION_RESUME_SCHEDULE, _resume)
+
+    async def _async_control(
+        self,
+        action: str,
+        call: Callable[[str], Awaitable[ControlResult]],
+    ) -> ControlResult:
+        """Run one user-triggered control command."""
+        target_address = self.target_address
+        if not target_address:
+            raise HomeAssistantError("缺少尼特利控制地址，无法发送控制命令")
+        try:
+            result = await call(target_address)
+        except NetleaAuthError as err:
+            raise HomeAssistantError("尼特利认证失败，请重新登录") from err
+        except (NetleaConnectionError, NetleaError) as err:
+            raise HomeAssistantError(f"尼特利控制失败：{err}") from err
+        self._apply_control_result(action, result)
         return result
 
     def _apply_control_result(self, action: str, result: ControlResult) -> None:
@@ -141,7 +161,9 @@ class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "action": action,
             "frame": result.frame,
             "reply_count": len(result.replies),
+            "expected_addresses": result.expected_addresses,
             "replied_addresses": result.replied_addresses,
+            "missing_addresses": result.missing_addresses,
             "legacy_state": result.legacy_state,
             "time": dt_util.now().isoformat(),
         }

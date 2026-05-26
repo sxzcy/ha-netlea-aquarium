@@ -47,13 +47,14 @@
     },
     "abort": {
       "already_configured": "Device is already configured",
+      "device_not_found": "Device group not found",
       "reauth_successful": "Reauthentication successful"
     }
   },
   "entity": {
     "light": {
       "aquarium_light": {
-        "name": "Aquarium Light"
+        "name": "Main Light"
       }
     },
     "button": {
@@ -69,24 +70,24 @@
     },
     "sensor": {
       "run_mode": {
-        "name": "Run Mode"
+        "name": "Light Mode"
       },
       "current_trip": {
-        "name": "Current Trip"
+        "name": "Current Schedule"
       },
       "reply_count": {
-        "name": "Reply Count"
+        "name": "Control Replies"
       },
       "online_count": {
         "name": "Online Count"
       },
       "last_command": {
-        "name": "Last Command"
+        "name": "Last Action"
       }
     },
     "binary_sensor": {
       "has_travel": {
-        "name": "Has Schedule"
+        "name": "Schedule Configured"
       },
       "travel_running": {
         "name": "Schedule Running"

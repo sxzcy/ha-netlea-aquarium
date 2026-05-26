@@ -1,11 +1,12 @@
 {
   "domain": "netlea_aquarium",
-  "name": "Netlea Aquarium",
+  "name": "尼特利鱼缸",
   "codeowners": [
     "@sxzcy"
   ],
   "config_flow": true,
   "documentation": "https://github.com/sxzcy/ha-netlea-aquarium",
+  "integration_type": "device",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/sxzcy/ha-netlea-aquarium/issues",
   "loggers": [

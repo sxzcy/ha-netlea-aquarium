@@ -28,12 +28,17 @@ class NetleaBaseEntity(CoordinatorEntity[NetleaDataUpdateCoordinator]):
         return self.coordinator.data or {}
 
     @property
+    def available(self) -> bool:
+        """Return whether fresh coordinator data is available."""
+        return super().available and not bool(self.device.get("_stale"))
+
+    @property
     def device_info(self) -> DeviceInfo:
         """Return device info."""
         status = parse_status_log(self.device)
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.device_key)},
             manufacturer="Netlea",
-            name=str(self.device.get("name") or "Netlea Aquarium"),
+            name=str(self.device.get("name") or "尼特利鱼缸"),
             model=str(status.get("showName") or self.device.get("name") or "Aquarium Light"),
         )
