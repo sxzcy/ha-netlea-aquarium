@@ -1,4 +1,4 @@
-"""Coordinator for Netlea Aquarium."""
+"""DataUpdateCoordinator for Netlea Aquarium."""
 
 from __future__ import annotations
 
@@ -14,150 +14,140 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import (
-    ControlResult,
-    NetleaAuthError,
-    NetleaClient,
-    NetleaConnectionError,
-    NetleaError,
-    parse_status_log,
-)
-from .const import (
-    ACTION_RESUME_SCHEDULE,
-    ACTION_TEMP_OFF,
-    ACTION_TEMP_ON,
-    CONF_CONTROL_REAL_ADDRESS,
-    CONF_EQUIPMENT_USER_ID,
-    DEFAULT_SCAN_INTERVAL,
-    DEFAULT_STALE_FAILURES,
-    DOMAIN,
-)
+from . import const
+from .client import NetleaAuthError, NetleaClient, NetleaConnectionError, NetleaError
+from .protocol import ControlResult, clamp_int, parse_status_log
 
 _LOGGER = logging.getLogger(__name__)
 
+_TEMP_CHANNEL_SPECS: tuple[tuple[str, str, int, int, int], ...] = (
+    ("red", const.CONF_TEMP_RED, const.DEFAULT_TEMP_RED, const.MIN_TEMP_CHANNEL, const.MAX_TEMP_CHANNEL),
+    ("white", const.CONF_TEMP_WHITE, const.DEFAULT_TEMP_WHITE, const.MIN_TEMP_CHANNEL, const.MAX_TEMP_CHANNEL),
+    ("green", const.CONF_TEMP_GREEN, const.DEFAULT_TEMP_GREEN, const.MIN_TEMP_CHANNEL, const.MAX_TEMP_CHANNEL),
+    ("blue", const.CONF_TEMP_BLUE, const.DEFAULT_TEMP_BLUE, const.MIN_TEMP_CHANNEL, const.MAX_TEMP_CHANNEL),
+    ("fan", const.CONF_TEMP_FAN, const.DEFAULT_TEMP_FAN, const.MIN_TEMP_FAN, const.MAX_TEMP_FAN),
+)
 
-class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Data update coordinator for one Netlea device group."""
+
+class NetleaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator managing polling and control for one Netlea device group."""
 
     def __init__(self, hass: HomeAssistant, client: NetleaClient, entry: ConfigEntry) -> None:
-        """Initialize the coordinator."""
+        options = dict(getattr(entry, "options", None) or {})
+        scan_interval = clamp_int(
+            options.get(const.CONF_SCAN_INTERVAL),
+            const.DEFAULT_SCAN_INTERVAL,
+            const.MIN_SCAN_INTERVAL,
+            const.MAX_SCAN_INTERVAL,
+        )
         super().__init__(
             hass,
             _LOGGER,
-            name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            name=const.DOMAIN,
+            config_entry=entry,
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.client = client
         self.entry = entry
-        self.equipment_user_id = str(entry.data.get(CONF_EQUIPMENT_USER_ID) or "")
-        self.control_real_address = str(entry.data.get(CONF_CONTROL_REAL_ADDRESS) or "").upper()
-        self._last_control: dict[str, Any] | None = None
-        self._connection_failures = 0
+        self.stale_failures = clamp_int(
+            options.get(const.CONF_STALE_FAILURES),
+            const.DEFAULT_STALE_FAILURES,
+            const.MIN_STALE_FAILURES,
+            const.MAX_STALE_FAILURES,
+        )
+        self.temp_channels = {
+            param: clamp_int(options.get(key), default, low, high)
+            for param, key, default, low, high in _TEMP_CHANNEL_SPECS
+        }
+        self.equipment_user_id = str(entry.data.get(const.CONF_EQUIPMENT_USER_ID) or "")
+        self.control_real_address = str(entry.data.get(const.CONF_CONTROL_REAL_ADDRESS) or "").upper()
+        self.last_control: dict[str, Any] | None = None
+        self.connection_failures = 0
 
     @property
     def device_key(self) -> str:
-        """Return stable device key."""
         return self.equipment_user_id or self.control_real_address
 
     @property
     def target_address(self) -> str:
-        """Return current websocket target address."""
-        data = self.data or {}
-        return str(data.get("controlRealAddress") or self.control_real_address).upper()
+        return str((self.data or {}).get("controlRealAddress") or self.control_real_address).upper()
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch latest data from Netlea."""
+        """Fetch latest device group data from Netlea cloud."""
         try:
             devices = await self.client.async_fetch_devices()
         except NetleaAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except NetleaConnectionError as err:
-            self._connection_failures += 1
-            if self.data and self._connection_failures <= DEFAULT_STALE_FAILURES:
-                data = deepcopy(self.data)
-                data["_stale"] = True
-                data["_connection_failures"] = self._connection_failures
-                data["_last_update_error"] = str(err)
-                data["_last_update_error_time"] = dt_util.now().isoformat()
+            self.connection_failures += 1
+            if self.data and self.connection_failures <= self.stale_failures:
+                stale_data = deepcopy(self.data)
+                stale_data["_stale"] = True
+                stale_data["_connection_failures"] = self.connection_failures
+                stale_data["_last_update_error"] = str(err)
+                stale_data["_last_update_error_time"] = dt_util.now().isoformat()
                 _LOGGER.debug(
-                    "Keeping stale Netlea data after temporary connection failure %s/%s: %s",
-                    self._connection_failures,
-                    DEFAULT_STALE_FAILURES,
-                    err,
+                    "Keeping stale Netlea data after failure %s/%s: %s",
+                    self.connection_failures, self.stale_failures, err,
                 )
-                return data
+                return stale_data
             raise UpdateFailed(str(err)) from err
         except NetleaError as err:
             raise UpdateFailed(str(err)) from err
 
-        self._connection_failures = 0
+        self.connection_failures = 0
         for device in devices:
-            equipment_user_id = str(device.get("equipmentUserId") or "")
-            real_address = str(device.get("controlRealAddress") or "").upper()
-            if equipment_user_id == self.equipment_user_id or real_address == self.control_real_address:
+            eq_id = str(device.get("equipmentUserId") or "")
+            addr = str(device.get("controlRealAddress") or "").upper()
+            if (self.equipment_user_id and eq_id == self.equipment_user_id) or (
+                self.control_real_address and addr == self.control_real_address
+            ):
                 device["_stale"] = False
                 device["_connection_failures"] = 0
-                if self._last_control:
-                    device["_last_control"] = self._last_control
+                if self.last_control:
+                    device["_last_control"] = self.last_control
                 return device
 
         raise UpdateFailed("Netlea device group not found")
 
     async def async_temp_on(self) -> ControlResult:
-        """Temporarily turn on the main light."""
-        return await self._async_control(ACTION_TEMP_ON, self.client.async_temp_on)
+        return await self._async_control(
+            const.ACTION_TEMP_ON, lambda target: self.client.async_temp_on(target, **self.temp_channels)
+        )
 
     async def async_temp_off(self) -> ControlResult:
-        """Temporarily turn off the main light."""
-        return await self._async_control(ACTION_TEMP_OFF, self.client.async_temp_off)
+        return await self._async_control(const.ACTION_TEMP_OFF, self.client.async_temp_off)
 
     async def async_resume_schedule(self) -> ControlResult:
-        """Resume schedule."""
-        async def _resume(target_address: str) -> ControlResult:
-            return await self.client.async_resume_schedule(target_address, self.data)
+        return await self._async_control(
+            const.ACTION_RESUME_SCHEDULE,
+            lambda target: self.client.async_resume_schedule(target, parse_status_log(self.data), now=dt_util.now()),
+        )
 
-        return await self._async_control(ACTION_RESUME_SCHEDULE, _resume)
-
-    async def _async_control(
-        self,
-        action: str,
-        call: Callable[[str], Awaitable[ControlResult]],
-    ) -> ControlResult:
-        """Run one user-triggered control command."""
+    async def _async_control(self, action: str, call: Callable[[str], Awaitable[ControlResult]]) -> ControlResult:
         target_address = self.target_address
         if not target_address:
             raise HomeAssistantError("缺少尼特利控制地址，无法发送控制命令")
         try:
             result = await call(target_address)
         except NetleaAuthError as err:
+            self.entry.async_start_reauth(self.hass)
             raise HomeAssistantError("尼特利认证失败，请重新登录") from err
-        except (NetleaConnectionError, NetleaError) as err:
+        except NetleaError as err:
             raise HomeAssistantError(f"尼特利控制失败：{err}") from err
         self._apply_control_result(action, result)
         return result
 
     def _apply_control_result(self, action: str, result: ControlResult) -> None:
-        """Apply a command result optimistically to coordinator data."""
         data = deepcopy(self.data or {})
         status = parse_status_log(data)
-        legacy_state = result.legacy_state or {}
-        master_state = legacy_state.get("master") if isinstance(legacy_state, dict) else None
-
-        if isinstance(master_state, dict):
-            status["onoff"] = int(master_state.get("lampState") or 0)
-            travel_running = status.get("travelRunning")
-            if not isinstance(travel_running, dict):
-                travel_running = {}
-            travel_running["main"] = int(master_state.get("pattern") or 0) == 2
-            status["travelRunning"] = travel_running
-
-            manual_status = status.get("manualStatus")
-            if not isinstance(manual_status, dict):
-                manual_status = {}
-            manual_status["main"] = int(master_state.get("pattern") or 0) == 3
-            status["manualStatus"] = manual_status
-
-        self._last_control = {
+        master = (result.legacy_state or {}).get("master") if isinstance(result.legacy_state, dict) else None
+        if isinstance(master, dict):
+            pattern = int(master.get("pattern") or 0)
+            status["onoff"] = int(master.get("lampState") or 0)
+            status["travelRunning"] = {**(status.get("travelRunning") if isinstance(status.get("travelRunning"), dict) else {}), "main": pattern == 2}
+            status["manualStatus"] = {**(status.get("manualStatus") if isinstance(status.get("manualStatus"), dict) else {}), "main": pattern == 3}
+        self.last_control = {
             "action": action,
             "frame": result.frame,
             "reply_count": len(result.replies),
@@ -168,5 +158,5 @@ class NetleaDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "time": dt_util.now().isoformat(),
         }
         data["statusLog"] = status
-        data["_last_control"] = self._last_control
+        data["_last_control"] = self.last_control
         self.async_set_updated_data(data)

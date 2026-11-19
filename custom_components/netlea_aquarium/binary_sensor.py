@@ -4,66 +4,49 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api import has_main_travel, is_main_travel_running
-from .const import DOMAIN
-from .coordinator import NetleaDataUpdateCoordinator
-from .entity import NetleaBaseEntity
+from . import NetleaConfigEntry
+from .coordinator import NetleaCoordinator
+from .entity import NetleaEntity
+from .protocol import has_main_travel, is_main_travel_running
 
 
 @dataclass(frozen=True, kw_only=True)
 class NetleaBinarySensorEntityDescription(BinarySensorEntityDescription):
-    """Netlea binary sensor description."""
+    """Declarative Netlea binary sensor description."""
 
-    value_fn: Callable[[dict], bool]
+    value_fn: Callable[[dict[str, Any]], bool]
 
 
 BINARY_SENSORS: tuple[NetleaBinarySensorEntityDescription, ...] = (
     NetleaBinarySensorEntityDescription(
-        key="has_travel",
-        translation_key="has_travel",
-        icon="mdi:calendar-check-outline",
-        value_fn=has_main_travel,
+        key="has_travel", translation_key="has_travel", icon="mdi:calendar-check-outline", value_fn=has_main_travel
     ),
     NetleaBinarySensorEntityDescription(
-        key="travel_running",
-        translation_key="travel_running",
-        icon="mdi:calendar-play-outline",
-        value_fn=is_main_travel_running,
+        key="travel_running", translation_key="travel_running", icon="mdi:calendar-play-outline", value_fn=is_main_travel_running
     ),
 )
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: NetleaConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     """Set up Netlea binary sensors."""
-    coordinator: NetleaDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities([NetleaBinarySensor(coordinator, description) for description in BINARY_SENSORS])
+    async_add_entities(NetleaBinarySensor(entry.runtime_data, desc) for desc in BINARY_SENSORS)
 
 
-class NetleaBinarySensor(NetleaBaseEntity, BinarySensorEntity):
-    """Netlea binary sensor."""
+class NetleaBinarySensor(NetleaEntity, BinarySensorEntity):
+    """Netlea schedule binary sensor."""
 
     entity_description: NetleaBinarySensorEntityDescription
 
-    def __init__(
-        self,
-        coordinator: NetleaDataUpdateCoordinator,
-        description: NetleaBinarySensorEntityDescription,
-    ) -> None:
-        """Initialize the binary sensor."""
+    def __init__(self, coordinator: NetleaCoordinator, description: NetleaBinarySensorEntityDescription) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description
 
     @property
     def is_on(self) -> bool:
-        """Return binary sensor state."""
         return self.entity_description.value_fn(self.device)

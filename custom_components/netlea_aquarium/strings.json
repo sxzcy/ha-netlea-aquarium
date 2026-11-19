@@ -5,7 +5,9 @@
         "title": "Netlea Aquarium",
         "description": "Enter your Netlea phone number. The integration will send an SMS login code.{details}",
         "data": {
-          "phone": "Phone number"
+          "phone": "Phone number",
+          "api_base": "API base URL (https://)",
+          "ws_url": "WebSocket URL (wss://)"
         }
       },
       "code": {
@@ -22,7 +24,7 @@
           "device": "Device group"
         }
       },
-      "reauth_user": {
+      "reauth_confirm": {
         "title": "Reauthenticate Netlea",
         "description": "Enter your phone number to send a new SMS code.{details}",
         "data": {
@@ -40,8 +42,10 @@
     "error": {
       "cannot_connect": "Failed to connect",
       "device_not_found": "Device group not found",
-      "invalid_phone": "Invalid phone number",
+      "invalid_api_base": "API base URL must use https://",
       "invalid_auth": "Invalid authentication",
+      "invalid_phone": "Invalid phone number",
+      "invalid_ws_url": "WebSocket URL must use wss://",
       "no_devices": "No devices found",
       "send_code_failed": "Failed to send SMS code"
     },
@@ -49,6 +53,23 @@
       "already_configured": "Device is already configured",
       "device_not_found": "Device group not found",
       "reauth_successful": "Reauthentication successful"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Netlea Aquarium Options",
+        "description": "Configure polling interval, failure tolerance, and temporary viewing light channels.",
+        "data": {
+          "scan_interval": "Scan interval (seconds, 30-600)",
+          "stale_failures": "Allowed consecutive failures before unavailable (0-5)",
+          "temp_red": "Temporary light Red channel (0-100)",
+          "temp_white": "Temporary light White channel (0-100)",
+          "temp_green": "Temporary light Green channel (0-100)",
+          "temp_blue": "Temporary light Blue channel (0-100)",
+          "temp_fan": "Temporary light Fan level (0-5)"
+        }
+      }
     }
   },
   "entity": {
@@ -75,11 +96,11 @@
       "current_trip": {
         "name": "Current Schedule"
       },
-      "reply_count": {
-        "name": "Control Replies"
-      },
       "online_count": {
         "name": "Online Count"
+      },
+      "reply_count": {
+        "name": "Control Replies"
       },
       "last_command": {
         "name": "Last Action"

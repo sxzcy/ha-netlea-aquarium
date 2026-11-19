@@ -2,76 +2,53 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ACTION_RESUME_SCHEDULE, ACTION_TEMP_OFF, ACTION_TEMP_ON, DOMAIN
-from .coordinator import NetleaDataUpdateCoordinator
-from .entity import NetleaBaseEntity
+from . import NetleaConfigEntry
+from .const import ACTION_RESUME_SCHEDULE, ACTION_TEMP_OFF, ACTION_TEMP_ON
+from .coordinator import NetleaCoordinator
+from .entity import NetleaEntity
 
 
 @dataclass(frozen=True, kw_only=True)
 class NetleaButtonEntityDescription(ButtonEntityDescription):
-    """Netlea button description."""
+    """Declarative Netlea action button description."""
 
-    action: str
+    press_fn: Callable[[NetleaCoordinator], Awaitable[Any]]
 
 
 BUTTONS: tuple[NetleaButtonEntityDescription, ...] = (
     NetleaButtonEntityDescription(
-        key=ACTION_TEMP_ON,
-        translation_key="temp_on",
-        icon="mdi:lightbulb-on-outline",
-        action=ACTION_TEMP_ON,
+        key=ACTION_TEMP_ON, translation_key="temp_on", icon="mdi:lightbulb-on-outline", press_fn=lambda c: c.async_temp_on()
     ),
     NetleaButtonEntityDescription(
-        key=ACTION_TEMP_OFF,
-        translation_key="temp_off",
-        icon="mdi:lightbulb-off-outline",
-        action=ACTION_TEMP_OFF,
+        key=ACTION_TEMP_OFF, translation_key="temp_off", icon="mdi:lightbulb-off-outline", press_fn=lambda c: c.async_temp_off()
     ),
     NetleaButtonEntityDescription(
-        key=ACTION_RESUME_SCHEDULE,
-        translation_key="resume_schedule",
-        icon="mdi:calendar-sync-outline",
-        action=ACTION_RESUME_SCHEDULE,
+        key=ACTION_RESUME_SCHEDULE, translation_key="resume_schedule", icon="mdi:calendar-sync-outline", press_fn=lambda c: c.async_resume_schedule()
     ),
 )
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up Netlea buttons."""
-    coordinator: NetleaDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities([NetleaActionButton(coordinator, description) for description in BUTTONS])
+async def async_setup_entry(hass: HomeAssistant, entry: NetleaConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+    """Set up Netlea action buttons."""
+    async_add_entities(NetleaActionButton(entry.runtime_data, desc) for desc in BUTTONS)
 
 
-class NetleaActionButton(NetleaBaseEntity, ButtonEntity):
-    """Netlea action button."""
+class NetleaActionButton(NetleaEntity, ButtonEntity):
+    """Netlea aquarium control button."""
 
     entity_description: NetleaButtonEntityDescription
 
-    def __init__(
-        self,
-        coordinator: NetleaDataUpdateCoordinator,
-        description: NetleaButtonEntityDescription,
-    ) -> None:
-        """Initialize the button."""
+    def __init__(self, coordinator: NetleaCoordinator, description: NetleaButtonEntityDescription) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description
 
     async def async_press(self) -> None:
-        """Press the button."""
-        if self.entity_description.action == ACTION_TEMP_ON:
-            await self.coordinator.async_temp_on()
-        elif self.entity_description.action == ACTION_TEMP_OFF:
-            await self.coordinator.async_temp_off()
-        elif self.entity_description.action == ACTION_RESUME_SCHEDULE:
-            await self.coordinator.async_resume_schedule()
+        await self.entity_description.press_fn(self.coordinator)

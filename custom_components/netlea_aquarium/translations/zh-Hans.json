@@ -5,7 +5,9 @@
         "title": "尼特利鱼缸",
         "description": "输入尼特利账号手机号，集成会发送短信验证码。{details}",
         "data": {
-          "phone": "手机号"
+          "phone": "手机号",
+          "api_base": "API 地址（须使用 https://）",
+          "ws_url": "WebSocket 地址（须使用 wss://）"
         }
       },
       "code": {
@@ -22,7 +24,7 @@
           "device": "设备组"
         }
       },
-      "reauth_user": {
+      "reauth_confirm": {
         "title": "重新登录尼特利",
         "description": "输入手机号，重新发送短信验证码。{details}",
         "data": {
@@ -40,8 +42,10 @@
     "error": {
       "cannot_connect": "连接失败",
       "device_not_found": "未找到设备组",
-      "invalid_phone": "手机号格式错误",
+      "invalid_api_base": "API 地址必须使用 https://",
       "invalid_auth": "认证失败",
+      "invalid_phone": "手机号格式错误",
+      "invalid_ws_url": "WebSocket 地址必须使用 wss://",
       "no_devices": "没有找到设备",
       "send_code_failed": "发送验证码失败"
     },
@@ -49,6 +53,23 @@
       "already_configured": "设备已配置",
       "device_not_found": "未找到设备组",
       "reauth_successful": "重新登录成功"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "尼特利鱼缸选项",
+        "description": "配置轮询间隔、失败容忍次数以及临时开灯的通道亮度与风扇档位。",
+        "data": {
+          "scan_interval": "轮询间隔（秒，30-600）",
+          "stale_failures": "判定不可用前允许的连续失败次数（0-5）",
+          "temp_red": "临时开灯红光通道（0-100）",
+          "temp_white": "临时开灯白光通道（0-100）",
+          "temp_green": "临时开灯绿光通道（0-100）",
+          "temp_blue": "临时开灯蓝光通道（0-100）",
+          "temp_fan": "临时开灯风扇档位（0-5）"
+        }
+      }
     }
   },
   "entity": {
@@ -75,11 +96,11 @@
       "current_trip": {
         "name": "当前日程"
       },
-      "reply_count": {
-        "name": "控制回执"
-      },
       "online_count": {
         "name": "在线灯数"
+      },
+      "reply_count": {
+        "name": "控制回执"
       },
       "last_command": {
         "name": "最后操作"

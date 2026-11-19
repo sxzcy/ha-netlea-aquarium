@@ -1,0 +1,118 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Netlea Aquarium",
+        "description": "Enter your Netlea phone number. The integration will send an SMS login code.{details}",
+        "data": {
+          "phone": "Phone number",
+          "api_base": "API base URL (https://)",
+          "ws_url": "WebSocket URL (wss://)"
+        }
+      },
+      "code": {
+        "title": "SMS code",
+        "description": "Enter the SMS code sent by Netlea.",
+        "data": {
+          "code": "SMS code"
+        }
+      },
+      "device": {
+        "title": "Select device group",
+        "description": "Select the Netlea device group to add.",
+        "data": {
+          "device": "Device group"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Netlea",
+        "description": "Enter your phone number to send a new SMS code.{details}",
+        "data": {
+          "phone": "Phone number"
+        }
+      },
+      "reauth_code": {
+        "title": "Reauthenticate Netlea",
+        "description": "Enter the new SMS code.",
+        "data": {
+          "code": "SMS code"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "device_not_found": "Device group not found",
+      "invalid_api_base": "API base URL must use https://",
+      "invalid_auth": "Invalid authentication",
+      "invalid_phone": "Invalid phone number",
+      "invalid_ws_url": "WebSocket URL must use wss://",
+      "no_devices": "No devices found",
+      "send_code_failed": "Failed to send SMS code"
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "device_not_found": "Device group not found",
+      "reauth_successful": "Reauthentication successful"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Netlea Aquarium Options",
+        "description": "Configure polling interval, failure tolerance, and temporary viewing light channels.",
+        "data": {
+          "scan_interval": "Scan interval (seconds, 30-600)",
+          "stale_failures": "Allowed consecutive failures before unavailable (0-5)",
+          "temp_red": "Temporary light Red channel (0-100)",
+          "temp_white": "Temporary light White channel (0-100)",
+          "temp_green": "Temporary light Green channel (0-100)",
+          "temp_blue": "Temporary light Blue channel (0-100)",
+          "temp_fan": "Temporary light Fan level (0-5)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "light": {
+      "aquarium_light": {
+        "name": "Main Light"
+      }
+    },
+    "button": {
+      "temp_on": {
+        "name": "Temporary On"
+      },
+      "temp_off": {
+        "name": "Temporary Off"
+      },
+      "resume_schedule": {
+        "name": "Resume Schedule"
+      }
+    },
+    "sensor": {
+      "run_mode": {
+        "name": "Light Mode"
+      },
+      "current_trip": {
+        "name": "Current Schedule"
+      },
+      "online_count": {
+        "name": "Online Count"
+      },
+      "reply_count": {
+        "name": "Control Replies"
+      },
+      "last_command": {
+        "name": "Last Action"
+      }
+    },
+    "binary_sensor": {
+      "has_travel": {
+        "name": "Schedule Configured"
+      },
+      "travel_running": {
+        "name": "Schedule Running"
+      }
+    }
+  }
+}

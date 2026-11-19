@@ -1,4 +1,4 @@
-"""Base entities for Netlea Aquarium."""
+"""Base entity for Netlea Aquarium."""
 
 from __future__ import annotations
 
@@ -7,34 +7,30 @@ from typing import Any
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import parse_status_log
 from .const import DOMAIN
-from .coordinator import NetleaDataUpdateCoordinator
+from .coordinator import NetleaCoordinator
+from .protocol import parse_status_log
 
 
-class NetleaBaseEntity(CoordinatorEntity[NetleaDataUpdateCoordinator]):
-    """Base class for Netlea entities."""
+class NetleaEntity(CoordinatorEntity[NetleaCoordinator]):
+    """Base entity bound to a NetleaCoordinator."""
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: NetleaDataUpdateCoordinator, suffix: str) -> None:
-        """Initialize the entity."""
+    def __init__(self, coordinator: NetleaCoordinator, suffix: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.device_key}_{suffix}"
 
     @property
     def device(self) -> dict[str, Any]:
-        """Return current device data."""
         return self.coordinator.data or {}
 
     @property
     def available(self) -> bool:
-        """Return whether fresh coordinator data is available."""
-        return super().available and not bool(self.device.get("_stale"))
+        return super().available
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device info."""
         status = parse_status_log(self.device)
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.device_key)},
