@@ -879,7 +879,7 @@ class TestNetleaIntegration(unittest.IsolatedAsyncioTestCase):
         # Translations key parity & version 2.0.0
         base = REPO_ROOT / "custom_components" / "netlea_aquarium"
         manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "2.0.0")
+        self.assertEqual(manifest["version"], "2.0.1")
         strings = json.loads((base / "strings.json").read_text(encoding="utf-8"))
         en = json.loads((base / "translations" / "en.json").read_text(encoding="utf-8"))
         zh = json.loads((base / "translations" / "zh-Hans.json").read_text(encoding="utf-8"))

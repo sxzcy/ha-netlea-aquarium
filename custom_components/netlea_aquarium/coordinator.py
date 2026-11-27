@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import timedelta
@@ -103,6 +104,10 @@ class NetleaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.active_preset_grade: int = 10
         self.offline_voice_enabled: bool = True
         self._schedule_loaded_local: bool = False
+        self._valid_schedule_frame: str | None = None
+        self._empty_schedule_macs: set[str] = set()
+        self._schedule_healed_macs: set[str] = set()
+        self._heal_tasks: set[asyncio.Task[Any]] = set()
         self.transport.set_push_callback(self._on_transport_push)
 
     @property
@@ -129,12 +134,66 @@ class NetleaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "_transport": self.transport_mode,
         }
 
+    @staticmethod
+    def _normalize_app_0x12_frame(frame_hex: str) -> str:
+        raw = proto.hex_bytes(frame_hex)
+        if len(raw) < 152:
+            return frame_hex.upper()
+        arr = raw[:152]
+        arr[4] = 0
+        arr[5] = 0
+        arr[-1] = proto.crc(arr[:-1])
+        return bytes(arr).hex().upper()
+
+    def _schedule_lamp_heal(self, mac: str) -> None:
+        if (
+            self.transport_mode != const.TRANSPORT_LOCAL_MQTT
+            or not self._valid_schedule_frame
+            or mac in self._schedule_healed_macs
+        ):
+            return
+        self._schedule_healed_macs.add(mac)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._schedule_healed_macs.discard(mac)
+            return
+        task = loop.create_task(self._async_heal_empty_lamp_schedule(mac))
+        self._heal_tasks.add(task)
+        task.add_done_callback(self._heal_tasks.discard)
+
+    async def _async_heal_empty_lamp_schedule(self, mac: str) -> None:
+        frame_12 = self._valid_schedule_frame
+        if not frame_12:
+            return
+        try:
+            await asyncio.sleep(0.5)
+            await self.transport.async_send_frame(mac, frame_12, timeout=5.0, expect_cmd=None)
+            await asyncio.sleep(0.4)
+            resume_frame = proto.build_resume_schedule_frame(self.data, dt_util.now())
+            res = await self.transport.async_send_frame(mac, resume_frame, timeout=5.0, expect_cmd=0x14)
+            self._empty_schedule_macs.discard(mac)
+            if res.legacy_state:
+                device = self._base_local_device()
+                status = proto.parse_status_log(device)
+                proto.apply_decoded_state_to_status(
+                    status, res.legacy_state, online_addresses=self.transport.connected_addresses()
+                )
+                device["statusLog"] = status
+                self.async_set_updated_data(device)
+            _LOGGER.info("Auto-synced group 0x12 schedule and resumed schedule on Netlea lamp %s", mac)
+        except Exception as err:  # noqa: BLE001
+            self._schedule_healed_macs.discard(mac)
+            _LOGGER.warning("Failed to auto-sync group schedule to Netlea lamp %s: %s", mac, err)
+
     def _on_transport_push(self, mac: str, kind: str, frame_hex: str) -> None:
         """Handle real-time local_push frames from Local MQTT or Local BLE."""
         device = self._base_local_device()
         status = proto.parse_status_log(device)
         online = self.transport.connected_addresses()
         if kind == "disconnect":
+            self._empty_schedule_macs.discard(mac)
+            self._schedule_healed_macs.discard(mac)
             proto.apply_decoded_state_to_status(status, online_addresses=online)
         elif kind == "heartbeat":
             hb = proto.decode_heartbeat_0x0a(frame_hex)
@@ -143,13 +202,31 @@ class NetleaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cmd = int(frame_hex[6:8], 16) if len(frame_hex) >= 8 else 0
             if cmd == 0x14:
                 state = proto.decode_lamps_state_reply(frame_hex)
-                proto.apply_decoded_state_to_status(status, state, online_addresses=online)
-                self._sync_preset_tracker(state)
+                # Avoid letting an unhealed empty-schedule lamp clobber a lit sibling's state
+                if mac in self._empty_schedule_macs and status.get("onoff") == 1:
+                    proto.apply_decoded_state_to_status(status, online_addresses=online)
+                else:
+                    proto.apply_decoded_state_to_status(status, state, online_addresses=online)
+                    self._sync_preset_tracker(state)
             elif cmd == 0x12:
                 sched = proto.decode_schedule_0x12(frame_hex, self.model_name)
                 if sched:
-                    self._schedule_loaded_local = True
-                proto.apply_decoded_state_to_status(status, schedule_0x12=sched, online_addresses=online)
+                    has_trips = bool(sched.get("enabled")) and bool(sched.get("trips"))
+                    if has_trips:
+                        self._schedule_loaded_local = True
+                        self._valid_schedule_frame = self._normalize_app_0x12_frame(frame_hex)
+                        self._empty_schedule_macs.discard(mac)
+                        proto.apply_decoded_state_to_status(status, schedule_0x12=sched, online_addresses=online)
+                        for empty_mac in list(self._empty_schedule_macs):
+                            self._schedule_lamp_heal(empty_mac)
+                    else:
+                        self._empty_schedule_macs.add(mac)
+                        existing_trips = ((status.get("masterhand") or {}).get("travelList")) or []
+                        if self._valid_schedule_frame or existing_trips:
+                            proto.apply_decoded_state_to_status(status, online_addresses=online)
+                            self._schedule_lamp_heal(mac)
+                        else:
+                            proto.apply_decoded_state_to_status(status, schedule_0x12=sched, online_addresses=online)
             elif cmd == 0x1A:
                 tmp = proto.decode_temp_0x1a(frame_hex)
                 if tmp and tmp.get("on_minutes"):
@@ -193,14 +270,23 @@ class NetleaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._sync_preset_tracker(res.legacy_state)
                     if not self._schedule_loaded_local:
                         sched_res = await self.transport.async_send_frame(
-                            online[0], proto.build_query_schedule_0x25(1), timeout=3.0, expect_cmd=0x12
+                            ",".join(online), proto.build_query_schedule_0x25(1), timeout=3.0, expect_cmd=0x12
                         )
                         for rep in sched_res.replies:
                             msg = (rep.get("msgBody") or {}).get("message")
+                            rep_mac = str((rep.get("msgBody") or {}).get("realAddress") or "").upper()
                             if sched := proto.decode_schedule_0x12(msg, self.model_name):
-                                proto.apply_decoded_state_to_status(status, schedule_0x12=sched, online_addresses=online)
-                                self._schedule_loaded_local = True
-                                break
+                                if sched.get("enabled") and sched.get("trips"):
+                                    proto.apply_decoded_state_to_status(
+                                        status, schedule_0x12=sched, online_addresses=online
+                                    )
+                                    self._valid_schedule_frame = self._normalize_app_0x12_frame(msg)
+                                    self._schedule_loaded_local = True
+                                elif rep_mac:
+                                    self._empty_schedule_macs.add(rep_mac)
+                        if self._valid_schedule_frame:
+                            for empty_mac in list(self._empty_schedule_macs):
+                                self._schedule_lamp_heal(empty_mac)
                 except NetleaError as err:
                     _LOGGER.debug("Periodic Local MQTT poll skipped: %s", err)
             device["statusLog"] = status
@@ -524,12 +610,16 @@ class NetleaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         resume: bool = True,
     ) -> proto.ControlResult:
         """Write full 1..10 slot 24-hour schedule via 0x12 (with power/fan validation)."""
+        enable_schedule = bool(trips)
         frame = proto.build_schedule_frame_0x12(
-            trips, sunrise_minutes=sunrise_minutes, sunset_minutes=sunset_minutes
+            trips,
+            sunrise_minutes=sunrise_minutes,
+            sunset_minutes=sunset_minutes,
+            enable_schedule=enable_schedule,
         )
         res = await self._async_control(
             "set_schedule",
-            lambda target: self.transport.async_send_frame(target, frame, expect_cmd=0x12),
+            lambda target: self.transport.async_send_frame(target, frame, expect_cmd=None),
         )
         sched = proto.decode_schedule_0x12(frame, self.model_name)
         if sched:
@@ -537,7 +627,9 @@ class NetleaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status = proto.parse_status_log(data)
             proto.apply_decoded_state_to_status(status, schedule_0x12=sched)
             data["statusLog"] = status
-            self._schedule_loaded_local = True
+            self._schedule_loaded_local = bool(trips)
+            self._valid_schedule_frame = frame if trips else None
+            self._empty_schedule_macs.clear()
             self.async_set_updated_data(data)
         if resume:
             await self.async_resume_schedule()

@@ -335,3 +335,66 @@ class TestNetleaV2EndToEnd(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res["type"], "create_entry")
         self.assertEqual(res["data"][const.CONF_CONTROL_REAL_ADDRESS], "08927278CCE6,ACEBE6B8786E")
         self.assertEqual(res["data"][const.CONF_TRANSPORT_MODE], const.TRANSPORT_LOCAL_MQTT)
+
+    async def test_sibling_empty_schedule_auto_heal(self) -> None:
+        sent: list[tuple[str, int]] = []
+
+        class _FakeGroupTransport(LocalMqttServerTransport):
+            def __init__(self) -> None:
+                super().__init__(
+                    allowed_addresses=["08927278CCE6", "ACEBE6B8786E", "08927277FB8A"],
+                    aes_key_hex=TEST_AES_KEY_HEX,
+                )
+
+            def connected_addresses(self) -> list[str]:
+                return ["08927277FB8A", "08927278CCE6", "ACEBE6B8786E"]
+
+            async def async_send_frame(self, target_address: str, frame: str, **kwargs):
+                cmd = bytes.fromhex(frame)[3]
+                sent.append((target_address, cmd))
+                payload = [1, 13, 0, 1, 0, 2, 46, 36, 56, 99, 180, 0, 0] + [0] * 18
+                rep = protocol.build_app_frame(0x01, 0x14, payload)
+                return protocol.ControlResult(
+                    frame=frame,
+                    replies=[{"msgBody": {"realAddress": target_address, "message": rep}}],
+                    expected_addresses=[target_address],
+                    replied_addresses=[target_address],
+                    missing_addresses=[],
+                    legacy_state=protocol.decode_lamps_state_reply(rep),
+                )
+
+        entry = ConfigEntry(
+            entry_id="e_heal",
+            data={
+                const.CONF_TRANSPORT_MODE: const.TRANSPORT_LOCAL_MQTT,
+                const.CONF_EQUIPMENT_USER_ID: "428560",
+                const.CONF_CONTROL_REAL_ADDRESS: "08927278CCE6,ACEBE6B8786E,08927277FB8A",
+                const.CONF_MODEL: "NL-N7-90-T32",
+            },
+        )
+        coord = NetleaCoordinator(MagicMock(), _FakeGroupTransport(), entry)
+        valid_12 = protocol.build_schedule_frame_0x12(
+            [{"startH": 13, "startM": 0, "endH": 23, "endM": 0, "R": 46, "W": 36, "G": 56, "B": 99, "F": 180, "mode": 1, "grade": 16}],
+            enable_schedule=True,
+        )
+        empty_12 = protocol.build_schedule_frame_0x12([], enable_schedule=False)
+
+        # Case 1: Empty Lamp-2 connects BEFORE Lamp-1
+        coord._on_transport_push("ACEBE6B8786E", "control_rsp", empty_12)
+        self.assertIn("ACEBE6B8786E", coord._empty_schedule_macs)
+        self.assertEqual(sent, [])
+
+        # Lamp-1 connects with valid schedule -> triggers auto-heal on Lamp-2
+        coord._on_transport_push("08927278CCE6", "control_rsp", valid_12)
+        # Case 2: Empty Lamp-3 connects AFTER Lamp-1 -> does NOT wipe schedule, triggers auto-heal on Lamp-3
+        coord._on_transport_push("08927277FB8A", "control_rsp", empty_12)
+        self.assertTrue(protocol.has_main_travel(coord.data))
+
+        if coord._heal_tasks:
+            await asyncio.gather(*list(coord._heal_tasks))
+
+        self.assertIn(("ACEBE6B8786E", 0x12), sent)
+        self.assertIn(("ACEBE6B8786E", 0x10), sent)
+        self.assertIn(("08927277FB8A", 0x12), sent)
+        self.assertIn(("08927277FB8A", 0x10), sent)
+        self.assertEqual(coord._empty_schedule_macs, set())
