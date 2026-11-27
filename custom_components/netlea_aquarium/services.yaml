@@ -1,0 +1,137 @@
+set_channels:
+  name: 设置四通道光谱
+  description: 直接设置红/白/绿/蓝四通道亮度（自动强制 91W 功率上限与 >20W 风扇热保护）。
+  fields:
+    entry_id:
+      name: 配置项 ID
+      description: 可选；多套灯组时指定目标配置项 ID。
+      selector:
+        text:
+    red:
+      name: 红光 R (0-255)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+    white:
+      name: 白光 W (0-255)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+    green:
+      name: 绿光 G (0-255)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+    blue:
+      name: 蓝光 B (0-255)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+    fan:
+      name: 风扇档位(0-10)或PWM(0-255)
+      selector:
+        number:
+          min: 0
+          max: 255
+    mode:
+      name: 控制模式
+      selector:
+        select:
+          options:
+            - schedule_auto
+            - manual_hold
+    duration_minutes:
+      name: 临时开灯时长（分钟）
+      selector:
+        number:
+          min: 1
+          max: 300
+
+apply_preset:
+  name: 应用官方光谱预设
+  description: 按机型应用官方预设光谱及档位（1-20 档）。
+  fields:
+    entry_id:
+      name: 配置项 ID
+      selector:
+        text:
+    preset:
+      name: 预设名称
+      required: true
+      example: "原生-溪流"
+      selector:
+        text:
+    grade:
+      name: 档位 (1-20)
+      selector:
+        number:
+          min: 1
+          max: 20
+    mode:
+      name: 控制模式
+      selector:
+        select:
+          options:
+            - schedule_auto
+            - manual_hold
+    duration_minutes:
+      name: 临时开灯时长（分钟）
+      selector:
+        number:
+          min: 1
+          max: 300
+
+query_state:
+  name: 主动查询灯具实时状态
+  description: 发送 0x15（及可选 0x25 日程读取）立即同步实机状态。
+  fields:
+    entry_id:
+      name: 配置项 ID
+      selector:
+        text:
+    include_schedule:
+      name: 同步读取 24 小时日程
+      default: true
+      selector:
+        boolean:
+
+set_schedule:
+  name: 写入 24 小时主灯日程
+  description: 通过 0x12 写入 1-10 段 24 小时主灯日程（含日出日落缓启与功率/风扇安全校验）。
+  fields:
+    entry_id:
+      name: 配置项 ID
+      selector:
+        text:
+    trips:
+      name: 日程时段列表
+      required: true
+      selector:
+        object:
+    sunrise_minutes:
+      name: 日出渐变（分钟，0-180）
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 180
+    sunset_minutes:
+      name: 日落渐变（分钟，0-180）
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 180
+    resume:
+      name: 写入后立即恢复日程运行
+      default: true
+      selector:
+        boolean:

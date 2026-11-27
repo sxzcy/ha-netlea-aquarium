@@ -1,17 +1,20 @@
 {
   "domain": "netlea_aquarium",
   "name": "尼特利鱼缸",
+  "after_dependencies": [
+    "bluetooth"
+  ],
   "codeowners": [
     "@sxzcy"
   ],
   "config_flow": true,
   "documentation": "https://github.com/sxzcy/ha-netlea-aquarium",
   "integration_type": "device",
-  "iot_class": "cloud_polling",
+  "iot_class": "local_push",
   "issue_tracker": "https://github.com/sxzcy/ha-netlea-aquarium/issues",
   "loggers": [
     "custom_components.netlea_aquarium"
   ],
   "requirements": [],
-  "version": "1.0.0"
+  "version": "2.0.0"
 }

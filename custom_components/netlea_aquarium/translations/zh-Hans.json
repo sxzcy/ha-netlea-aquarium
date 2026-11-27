@@ -3,6 +3,33 @@
     "step": {
       "user": {
         "title": "尼特利鱼缸",
+        "description": "选择尼特利 7 系灯具接入方式。",
+        "data": {
+          "transport_mode": "传输模式"
+        }
+      },
+      "local_mqtt": {
+        "title": "Local MQTT（内置本地服务端）",
+        "description": "在 Home Assistant 内置加密 MQTT 3.1.1 服务端（配合路由器将灯具 1883 端口 DNAT 转发至此端口，零云端依赖）。",
+        "data": {
+          "device_name": "设备组名称",
+          "model": "灯具型号",
+          "control_real_address": "灯具 BLE MAC 列表（英文逗号分隔）",
+          "mqtt_port": "本地监听端口",
+          "mqtt_aes_key": "本地 MQTT AES-128 密钥（32 位十六进制）"
+        }
+      },
+      "local_ble": {
+        "title": "Local BLE（本机蓝牙直连）",
+        "description": "通过 Home Assistant 蓝牙直接控制灯具（无需云端账号与密钥）。",
+        "data": {
+          "device_name": "设备组名称",
+          "model": "灯具型号",
+          "control_real_address": "灯具 BLE MAC 列表（英文逗号分隔）"
+        }
+      },
+      "cloud": {
+        "title": "尼特利云端登录",
         "description": "输入尼特利账号手机号，集成会发送短信验证码。{details}",
         "data": {
           "phone": "手机号",
@@ -42,8 +69,10 @@
     "error": {
       "cannot_connect": "连接失败",
       "device_not_found": "未找到设备组",
+      "invalid_aes_key": "AES 密钥必须为 32 位十六进制字符串",
       "invalid_api_base": "API 地址必须使用 https://",
       "invalid_auth": "认证失败",
+      "invalid_mac": "BLE MAC 地址格式错误（每台 12 位十六进制，逗号分隔）",
       "invalid_phone": "手机号格式错误",
       "invalid_ws_url": "WebSocket 地址必须使用 wss://",
       "no_devices": "没有找到设备",
@@ -59,60 +88,87 @@
     "step": {
       "init": {
         "title": "尼特利鱼缸选项",
-        "description": "配置轮询间隔、失败容忍次数以及临时开灯的通道亮度与风扇档位。",
+        "description": "配置传输模式、型号、控制语义、轮询间隔以及临时开灯参数。",
         "data": {
-          "scan_interval": "轮询间隔（秒，30-600）",
+          "transport_mode": "传输模式（local_mqtt / local_ble / cloud_ws）",
+          "model": "灯具型号",
+          "control_mode": "默认控制模式",
+          "control_real_address": "灯具 BLE MAC 列表",
+          "mqtt_port": "本地 MQTT 监听端口",
+          "mqtt_aes_key": "本地 MQTT AES-128 密钥（32 位十六进制）",
+          "scan_interval": "轮询间隔（秒，15-600）",
           "stale_failures": "判定不可用前允许的连续失败次数（0-5）",
-          "temp_red": "临时开灯红光通道（0-100）",
-          "temp_white": "临时开灯白光通道（0-100）",
-          "temp_green": "临时开灯绿光通道（0-100）",
-          "temp_blue": "临时开灯蓝光通道（0-100）",
-          "temp_fan": "临时开灯风扇档位（0-5）"
+          "temp_on_minutes": "临时开灯时长（分钟，1-300）",
+          "temp_red": "临时开灯红光通道（0-255）",
+          "temp_white": "临时开灯白光通道（0-255）",
+          "temp_green": "临时开灯绿光通道（0-255）",
+          "temp_blue": "临时开灯蓝光通道（0-255）",
+          "temp_fan": "临时开灯风扇档位（0-10）"
         }
       }
+    },
+    "error": {
+      "invalid_aes_key": "AES 密钥必须为 32 位十六进制字符串"
     }
   },
   "entity": {
     "light": {
-      "aquarium_light": {
-        "name": "主灯"
-      }
+      "aquarium_light": { "name": "主灯" },
+      "atmosphere_light": { "name": "氛围灯" }
     },
     "button": {
-      "temp_on": {
-        "name": "临时开灯"
-      },
-      "temp_off": {
-        "name": "临时关灯"
-      },
-      "resume_schedule": {
-        "name": "恢复日程"
-      }
+      "temp_on": { "name": "临时开灯" },
+      "temp_off": { "name": "临时关灯" },
+      "resume_schedule": { "name": "恢复日程" },
+      "refresh_state": { "name": "刷新实机状态" },
+      "sync_time": { "name": "同步时钟" }
     },
     "sensor": {
-      "run_mode": {
-        "name": "灯光模式"
-      },
-      "current_trip": {
-        "name": "当前日程"
-      },
-      "online_count": {
-        "name": "在线灯数"
-      },
-      "reply_count": {
-        "name": "控制回执"
-      },
-      "last_command": {
-        "name": "最后操作"
-      }
+      "run_mode": { "name": "灯光模式" },
+      "current_trip": { "name": "当前日程" },
+      "power_w": { "name": "估算功率" },
+      "online_count": { "name": "在线灯数" },
+      "wifi_rssi": { "name": "Wi-Fi 信号" },
+      "firmware_version": { "name": "固件版本" },
+      "transport_mode": { "name": "传输通道" },
+      "reply_count": { "name": "控制回执" },
+      "last_command": { "name": "最后操作" }
     },
     "binary_sensor": {
-      "has_travel": {
-        "name": "已配置日程"
+      "has_travel": { "name": "已配置日程" },
+      "travel_running": { "name": "日程运行中" }
+    },
+    "select": {
+      "control_mode": {
+        "name": "控制模式",
+        "state": {
+          "schedule_auto": "日程自动",
+          "manual_hold": "手动常亮"
+        }
       },
-      "travel_running": {
-        "name": "日程运行中"
+      "spectrum_preset": { "name": "光谱预设" },
+      "atmosphere_follow": {
+        "name": "氛围灯跟随模式",
+        "state": {
+          "manual": "独立手动",
+          "follow_main_on": "随主灯开启",
+          "follow_main_off": "主灯关时开启"
+        }
       }
+    },
+    "fan": {
+      "cooling_fan": { "name": "散热风扇" }
+    },
+    "number": {
+      "temp_duration": { "name": "临时开灯时长" },
+      "preset_grade": { "name": "预设档位" },
+      "channel_r": { "name": "红光通道" },
+      "channel_w": { "name": "白光通道" },
+      "channel_g": { "name": "绿光通道" },
+      "channel_b": { "name": "蓝光通道" }
+    },
+    "switch": {
+      "offline_voice": { "name": "离线语音" }
     }
   }
 }

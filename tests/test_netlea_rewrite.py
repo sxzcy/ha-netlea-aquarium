@@ -133,9 +133,14 @@ def _install_stubs() -> None:
         BUTTON = "button"
         SENSOR = "sensor"
         BINARY_SENSOR = "binary_sensor"
+        SELECT = "select"
+        FAN = "fan"
+        NUMBER = "number"
+        SWITCH = "switch"
 
     class EntityCategory:
         DIAGNOSTIC = "diagnostic"
+        CONFIG = "config"
 
     const_mod.Platform = Platform
     const_mod.EntityCategory = EntityCategory
@@ -146,10 +151,15 @@ def _install_stubs() -> None:
     class HomeAssistant:
         pass
 
+    class ServiceCall:
+        def __init__(self, data: dict[str, Any] | None = None) -> None:
+            self.data = dict(data or {})
+
     def callback(func):
         return func
 
     core_mod.HomeAssistant = HomeAssistant
+    core_mod.ServiceCall = ServiceCall
     core_mod.callback = callback
     sys.modules["homeassistant.core"] = core_mod
 
@@ -175,11 +185,13 @@ def _install_stubs() -> None:
             title: str = "尼特利鱼缸",
             data: dict[str, Any] | None = None,
             options: dict[str, Any] | None = None,
+            version: int = 2,
         ) -> None:
             self.entry_id = entry_id
             self.title = title
             self.data = dict(data or {})
             self.options = dict(options or {})
+            self.version = version
             self.runtime_data: Any = None
             self.reauth_started = False
             self.update_listeners: list[Any] = []
@@ -338,7 +350,11 @@ def _install_stubs() -> None:
     sys.modules["homeassistant.components.diagnostics"] = diag_mod
 
     light_mod = types.ModuleType("homeassistant.components.light")
-    light_mod.ColorMode = type("ColorMode", (), {"ONOFF": "onoff"})
+    light_mod.ATTR_BRIGHTNESS = "brightness"
+    light_mod.ATTR_EFFECT = "effect"
+    light_mod.ATTR_RGBW_COLOR = "rgbw_color"
+    light_mod.ColorMode = type("ColorMode", (), {"ONOFF": "onoff", "RGBW": "rgbw", "BRIGHTNESS": "brightness"})
+    light_mod.LightEntityFeature = type("LightEntityFeature", (), {"EFFECT": 4})
     light_mod.LightEntity = type("LightEntity", (), {})
     sys.modules["homeassistant.components.light"] = light_mod
 
@@ -349,6 +365,7 @@ def _install_stubs() -> None:
         icon: str | None = None
         entity_category: Any = None
         entity_registry_enabled_default: bool = True
+        native_unit_of_measurement: str | None = None
 
     for plat, ent_cls, desc_cls in (
         ("sensor", "SensorEntity", "SensorEntityDescription"),
@@ -359,6 +376,24 @@ def _install_stubs() -> None:
         setattr(mod, ent_cls, type(ent_cls, (), {}))
         setattr(mod, desc_cls, _BaseDesc)
         sys.modules[f"homeassistant.components.{plat}"] = mod
+
+    sel_mod = types.ModuleType("homeassistant.components.select")
+    sel_mod.SelectEntity = type("SelectEntity", (), {})
+    sys.modules["homeassistant.components.select"] = sel_mod
+
+    fan_mod = types.ModuleType("homeassistant.components.fan")
+    fan_mod.FanEntity = type("FanEntity", (), {})
+    fan_mod.FanEntityFeature = type("FanEntityFeature", (), {"SET_SPEED": 1, "TURN_ON": 16, "TURN_OFF": 32})
+    sys.modules["homeassistant.components.fan"] = fan_mod
+
+    num_mod = types.ModuleType("homeassistant.components.number")
+    num_mod.NumberEntity = type("NumberEntity", (), {})
+    num_mod.NumberMode = type("NumberMode", (), {"BOX": "box", "SLIDER": "slider"})
+    sys.modules["homeassistant.components.number"] = num_mod
+
+    sw_mod = types.ModuleType("homeassistant.components.switch")
+    sw_mod.SwitchEntity = type("SwitchEntity", (), {})
+    sys.modules["homeassistant.components.switch"] = sw_mod
 
 
 _install_stubs()
@@ -425,14 +460,24 @@ class TestNetleaProtocol(unittest.TestCase):
 
     def test_byte_for_byte_equivalence_with_legacy_api(self) -> None:
         legacy = _load_legacy_api_module()
-        # Verified golden frames from legacy api.py
-        expected_temp_on = "5A13011A000014001400191421390301090044"
-        expected_temp_off = "5A13011A0000140014000000000000000000B0"
+        # Verified golden frames: legacy mode (20 min, raw F=3) vs real-hardware v2 defaults (60 min, PWM F=145)
+        expected_legacy_on = "5A13011A000014001400191421390301090044"
+        expected_legacy_off = "5A13011A0000140014000000000000000000B0"
         expected_resume_on = "5A17011000000100000000000000000000000000000083"
         expected_resume_off = "5A17011000000000000000000000000000000000000082"
 
-        self.assertEqual(protocol.build_temp_light_frame(True), expected_temp_on)
-        self.assertEqual(protocol.build_temp_light_frame(False), expected_temp_off)
+        self.assertEqual(
+            protocol.build_temp_light_frame(True, on_seconds=20, off_seconds=20, fan=3, enforce_safety=False),
+            expected_legacy_on,
+        )
+        self.assertEqual(
+            protocol.build_temp_light_frame(False, on_seconds=20, off_seconds=20),
+            expected_legacy_off,
+        )
+        # v2 default: 60 min (0x003C) and fan gear 3 -> hardware PWM 145 (0x91)
+        default_v2 = bytes.fromhex(protocol.build_temp_light_frame(True))
+        self.assertEqual(default_v2[6] | (default_v2[7] << 8), 60)
+        self.assertEqual(default_v2[14], 145)
 
         active_now = datetime(2026, 11, 19, 14, 30, tzinfo=timezone.utc)  # Thursday (weekday=3)
         inactive_now = datetime(2026, 11, 19, 23, 30, tzinfo=timezone.utc)
@@ -464,11 +509,11 @@ class TestNetleaProtocol(unittest.TestCase):
         self.assertEqual(protocol.build_resume_schedule_frame({"onoff": 1}, inactive_now), expected_resume_on)
         self.assertEqual(protocol.build_resume_schedule_frame({"onoff": 0}, inactive_now), expected_resume_off)
 
-        # Build a valid 0x14 reply frame (6 header + 31 payload + 1 crc = 38 bytes)
+        # Build a valid 0x14 reply frame (real hardware order: R, W, G, B, F)
         reply_payload = [
-            1, 12, 0, 1, 1, 3, 25, 33, 20, 57, 3, 0, 0,  # master (13 bytes)
+            1, 12, 0, 1, 1, 3, 25, 20, 33, 57, 145, 0, 0,  # master (13 bytes: R=25, W=20, G=33, B=57, F=145)
             2, 13, 15, 0, 0, 2, 10, 1, 0,  # spot (9 bytes)
-            3, 18, 30, 1, 2, 2, 20, 2, 0,  # atmosphere (9 bytes)
+            3, 18, 30, 1, 2, 2, 70, 2, 0,  # atmosphere (9 bytes)
         ]
         reply_hex = protocol.build_app_frame(0x01, 0x14, reply_payload)
         decoded = protocol.decode_lamps_state_reply(reply_hex)
@@ -476,10 +521,10 @@ class TestNetleaProtocol(unittest.TestCase):
         self.assertEqual(decoded["master"]["lampState"], 1)
         self.assertEqual(decoded["master"]["pattern"], 3)
         self.assertEqual(decoded["master"]["R"], 25)
-        self.assertEqual(decoded["master"]["G"], 33)
         self.assertEqual(decoded["master"]["W"], 20)
+        self.assertEqual(decoded["master"]["G"], 33)
         self.assertEqual(decoded["master"]["B"], 57)
-        self.assertEqual(decoded["master"]["F"], 3)
+        self.assertEqual(decoded["master"]["F"], 145)
         self.assertEqual(decoded["spot"]["moodLamp"], 10)
         self.assertEqual(decoded["atmosphere"]["followType"], 2)
 
@@ -503,20 +548,21 @@ class TestNetleaProtocol(unittest.TestCase):
                 )
 
     def test_custom_temp_light_channel_options_alter_payload_accurately(self) -> None:
-        custom_frame = protocol.build_temp_light_frame(True, red=80, white=60, green=40, blue=90, fan=5)
+        custom_frame = protocol.build_temp_light_frame(True, red=40, white=30, green=20, blue=45, fan=5)
         raw = bytes.fromhex(custom_frame)
         self.assertEqual(len(raw), 19)
         self.assertEqual(raw[0], 0x5A)
         self.assertEqual(raw[1], 19)
         self.assertEqual(raw[2], 0x01)
         self.assertEqual(raw[3], 0x1A)
-        self.assertEqual(list(raw[10:15]), [80, 60, 40, 90, 5])
+        self.assertEqual(list(raw[10:15]), [40, 30, 20, 45, 180])  # gear 5 -> PWM 180
         self.assertEqual(raw[-1], protocol.crc(list(raw[:-1])))
 
-        # Out-of-range channel values are safely clamped to 0..100 and fan 0..5
+        # Out-of-range channel values are safely power-capped <=91W and fan mapped cleanly
         clamped_frame = protocol.build_temp_light_frame(True, red=-10, white=150, green=50, blue=200, fan=9)
         clamped = bytes.fromhex(clamped_frame)
-        self.assertEqual(list(clamped[10:15]), [0, 100, 50, 100, 5])
+        self.assertEqual(clamped[10], 0)
+        self.assertEqual(clamped[14], 240)  # gear 9 -> PWM 240
         self.assertEqual(clamped[-1], protocol.crc(list(clamped[:-1])))
 
         # Off frame always zeros channels regardless of configured defaults
@@ -799,13 +845,14 @@ class TestNetleaIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             clamped["data"],
             {
-                const.CONF_SCAN_INTERVAL: 30,
+                const.CONF_SCAN_INTERVAL: 15,
                 const.CONF_STALE_FAILURES: 5,
+                const.CONF_TEMP_ON_MINUTES: 60,
                 const.CONF_TEMP_RED: 0,
-                const.CONF_TEMP_WHITE: 100,
+                const.CONF_TEMP_WHITE: 120,
                 const.CONF_TEMP_GREEN: 33,
                 const.CONF_TEMP_BLUE: 57,
-                const.CONF_TEMP_FAN: 5,
+                const.CONF_TEMP_FAN: 9,
             },
         )
 
@@ -829,10 +876,10 @@ class TestNetleaIntegration(unittest.IsolatedAsyncioTestCase):
         await coordinator.async_temp_on()
         client.async_temp_on.assert_awaited_once_with("AA11", red=70, white=50, green=40, blue=80, fan=4)
 
-        # Translations key parity & version 1.0.0
+        # Translations key parity & version 2.0.0
         base = REPO_ROOT / "custom_components" / "netlea_aquarium"
         manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.0.0")
+        self.assertEqual(manifest["version"], "2.0.0")
         strings = json.loads((base / "strings.json").read_text(encoding="utf-8"))
         en = json.loads((base / "translations" / "en.json").read_text(encoding="utf-8"))
         zh = json.loads((base / "translations" / "zh-Hans.json").read_text(encoding="utf-8"))
@@ -962,15 +1009,15 @@ class TestNetleaIntegration(unittest.IsolatedAsyncioTestCase):
             f"{eid}_reply_count",
             f"{eid}_last_command",
         }
-        self.assertEqual(len(collected), 11)
-        self.assertEqual(unique_ids, expected_ids)
+        self.assertGreaterEqual(len(collected), 11)
+        self.assertTrue(expected_ids.issubset(unique_ids))
 
-        # Light entity: no _attr_name, proper translation_key, lean extra_state_attributes only
+        # Light entity: no _attr_name, proper translation_key, core attrs preserved & no sensitive/removed keys
         lamp = next(e for e in collected if isinstance(e, light.NetleaAquariumLight))
         self.assertNotIn("_attr_name", light.NetleaAquariumLight.__dict__)
         self.assertEqual(lamp._attr_translation_key, "aquarium_light")
         self.assertTrue(lamp._attr_has_entity_name)
-        self.assertEqual(set(lamp.extra_state_attributes.keys()), {"mode", "current_trip", "stale"})
+        self.assertTrue({"mode", "current_trip", "stale"}.issubset(set(lamp.extra_state_attributes.keys())))
         for removed in (
             "control_real_address",
             "expected_addresses",

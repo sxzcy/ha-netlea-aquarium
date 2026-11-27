@@ -3,116 +3,172 @@
     "step": {
       "user": {
         "title": "Netlea Aquarium",
-        "description": "Enter your Netlea phone number. The integration will send an SMS login code.{details}",
+        "description": "Choose how to connect to your Netlea 7-series lamp group.",
         "data": {
-          "phone": "Phone number",
-          "api_base": "API base URL (https://)",
-          "ws_url": "WebSocket URL (wss://)"
+          "transport_mode": "Transport Mode"
+        }
+      },
+      "local_mqtt": {
+        "title": "Local MQTT (Embedded Server)",
+        "description": "Run an embedded encrypted MQTT 3.1.1 server inside Home Assistant (pair with router DNAT from port 1883 to this port).",
+        "data": {
+          "device_name": "Device Group Name",
+          "model": "Lamp Model",
+          "control_real_address": "Lamp BLE MAC Addresses (comma-separated)",
+          "mqtt_port": "Listen Port",
+          "mqtt_aes_key": "MQTT AES-128 Key (32-char hex)"
+        }
+      },
+      "local_ble": {
+        "title": "Local BLE Direct",
+        "description": "Control lamps directly via Home Assistant Bluetooth (no cloud account or key required).",
+        "data": {
+          "device_name": "Device Group Name",
+          "model": "Lamp Model",
+          "control_real_address": "Lamp BLE MAC Addresses (comma-separated)"
+        }
+      },
+      "cloud": {
+        "title": "Netlea Cloud Login",
+        "description": "Enter your Netlea phone number to receive an SMS login code.{details}",
+        "data": {
+          "phone": "Phone Number",
+          "api_base": "API Base URL (must use https://)",
+          "ws_url": "WebSocket URL (must use wss://)"
         }
       },
       "code": {
-        "title": "SMS code",
-        "description": "Enter the SMS code sent by Netlea.",
+        "title": "SMS Verification Code",
+        "description": "Enter the SMS verification code from Netlea.",
         "data": {
-          "code": "SMS code"
+          "code": "Verification Code"
         }
       },
       "device": {
-        "title": "Select device group",
-        "description": "Select the Netlea device group to add.",
+        "title": "Select Device Group",
+        "description": "Choose the Netlea device group to add.",
         "data": {
-          "device": "Device group"
+          "device": "Device Group"
         }
       },
       "reauth_confirm": {
-        "title": "Reauthenticate Netlea",
-        "description": "Enter your phone number to send a new SMS code.{details}",
+        "title": "Re-authenticate Netlea",
+        "description": "Enter your phone number to request a new SMS code.{details}",
         "data": {
-          "phone": "Phone number"
+          "phone": "Phone Number"
         }
       },
       "reauth_code": {
-        "title": "Reauthenticate Netlea",
-        "description": "Enter the new SMS code.",
+        "title": "Re-authenticate Netlea",
+        "description": "Enter the new SMS verification code.",
         "data": {
-          "code": "SMS code"
+          "code": "Verification Code"
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "device_not_found": "Device group not found",
-      "invalid_api_base": "API base URL must use https://",
-      "invalid_auth": "Invalid authentication",
+      "invalid_aes_key": "AES key must be a 32-character hex string",
+      "invalid_api_base": "API Base URL must use https://",
+      "invalid_auth": "Authentication failed",
+      "invalid_mac": "Invalid 12-character BLE MAC address list",
       "invalid_phone": "Invalid phone number",
       "invalid_ws_url": "WebSocket URL must use wss://",
       "no_devices": "No devices found",
       "send_code_failed": "Failed to send SMS code"
     },
     "abort": {
-      "already_configured": "Device is already configured",
+      "already_configured": "Device already configured",
       "device_not_found": "Device group not found",
-      "reauth_successful": "Reauthentication successful"
+      "reauth_successful": "Re-authentication successful"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Netlea Aquarium Options",
-        "description": "Configure polling interval, failure tolerance, and temporary viewing light channels.",
+        "description": "Configure transport mode, model, control semantics, polling, and temporary viewing light defaults.",
         "data": {
-          "scan_interval": "Scan interval (seconds, 30-600)",
-          "stale_failures": "Allowed consecutive failures before unavailable (0-5)",
-          "temp_red": "Temporary light Red channel (0-100)",
-          "temp_white": "Temporary light White channel (0-100)",
-          "temp_green": "Temporary light Green channel (0-100)",
-          "temp_blue": "Temporary light Blue channel (0-100)",
-          "temp_fan": "Temporary light Fan level (0-5)"
+          "transport_mode": "Transport Mode",
+          "model": "Lamp Model",
+          "control_mode": "Default Control Mode",
+          "control_real_address": "Lamp BLE MAC Addresses",
+          "mqtt_port": "Local MQTT Port",
+          "mqtt_aes_key": "Local MQTT AES-128 Key (32-char hex)",
+          "scan_interval": "Scan Interval (seconds, 15-600)",
+          "stale_failures": "Allowed Consecutive Failures (0-5)",
+          "temp_on_minutes": "Temporary Light Duration (minutes, 1-300)",
+          "temp_red": "Temporary Light Red (0-255)",
+          "temp_white": "Temporary Light White (0-255)",
+          "temp_green": "Temporary Light Green (0-255)",
+          "temp_blue": "Temporary Light Blue (0-255)",
+          "temp_fan": "Temporary Light Fan Gear (0-10)"
         }
       }
+    },
+    "error": {
+      "invalid_aes_key": "AES key must be a 32-character hex string"
     }
   },
   "entity": {
     "light": {
-      "aquarium_light": {
-        "name": "Main Light"
-      }
+      "aquarium_light": { "name": "Main Light" },
+      "atmosphere_light": { "name": "Atmosphere Light" }
     },
     "button": {
-      "temp_on": {
-        "name": "Temporary On"
-      },
-      "temp_off": {
-        "name": "Temporary Off"
-      },
-      "resume_schedule": {
-        "name": "Resume Schedule"
-      }
+      "temp_on": { "name": "Temporary On" },
+      "temp_off": { "name": "Temporary Off" },
+      "resume_schedule": { "name": "Resume Schedule" },
+      "refresh_state": { "name": "Refresh State" },
+      "sync_time": { "name": "Sync Clock" }
     },
     "sensor": {
-      "run_mode": {
-        "name": "Light Mode"
-      },
-      "current_trip": {
-        "name": "Current Schedule"
-      },
-      "online_count": {
-        "name": "Online Count"
-      },
-      "reply_count": {
-        "name": "Control Replies"
-      },
-      "last_command": {
-        "name": "Last Action"
-      }
+      "run_mode": { "name": "Light Mode" },
+      "current_trip": { "name": "Current Schedule" },
+      "power_w": { "name": "Estimated Power" },
+      "online_count": { "name": "Online Lamps" },
+      "wifi_rssi": { "name": "Wi-Fi Signal" },
+      "firmware_version": { "name": "Firmware Version" },
+      "transport_mode": { "name": "Transport Mode" },
+      "reply_count": { "name": "Control Replies" },
+      "last_command": { "name": "Last Command" }
     },
     "binary_sensor": {
-      "has_travel": {
-        "name": "Schedule Configured"
+      "has_travel": { "name": "Schedule Configured" },
+      "travel_running": { "name": "Schedule Running" }
+    },
+    "select": {
+      "control_mode": {
+        "name": "Control Mode",
+        "state": {
+          "schedule_auto": "Schedule Auto (Temporary)",
+          "manual_hold": "Manual Hold"
+        }
       },
-      "travel_running": {
-        "name": "Schedule Running"
+      "spectrum_preset": { "name": "Spectrum Preset" },
+      "atmosphere_follow": {
+        "name": "Atmosphere Follow Mode",
+        "state": {
+          "manual": "Manual",
+          "follow_main_on": "Follow Main On",
+          "follow_main_off": "On When Main Off"
+        }
       }
+    },
+    "fan": {
+      "cooling_fan": { "name": "Cooling Fan" }
+    },
+    "number": {
+      "temp_duration": { "name": "Temporary Duration" },
+      "preset_grade": { "name": "Preset Grade" },
+      "channel_r": { "name": "Red Channel" },
+      "channel_w": { "name": "White Channel" },
+      "channel_g": { "name": "Green Channel" },
+      "channel_b": { "name": "Blue Channel" }
+    },
+    "switch": {
+      "offline_voice": { "name": "Offline Voice" }
     }
   }
 }

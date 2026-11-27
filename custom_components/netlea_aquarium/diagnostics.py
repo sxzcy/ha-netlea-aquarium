@@ -10,12 +10,30 @@ from homeassistant.core import HomeAssistant
 from . import NetleaConfigEntry, const
 
 TO_REDACT = {
-    const.CONF_TOKEN, const.CONF_PHONE, const.CONF_CODE, const.CONF_UUID,
-    const.CONF_USER_ID, const.CONF_EQUIPMENT_USER_ID, const.CONF_CONTROL_REAL_ADDRESS,
-    "authorization", "Authorization", "phone", "phonenumber", "mobile", "username", "password",
-    "userId", "equipmentUserId", "realAddress", "controlRealAddress",
-    "firstConnectRealAddress", "onLineRealAddress",
-    "expected_addresses", "replied_addresses", "missing_addresses",
+    const.CONF_TOKEN,
+    const.CONF_PHONE,
+    const.CONF_CODE,
+    const.CONF_UUID,
+    const.CONF_USER_ID,
+    const.CONF_EQUIPMENT_USER_ID,
+    const.CONF_CONTROL_REAL_ADDRESS,
+    const.CONF_MQTT_AES_KEY,
+    "authorization",
+    "Authorization",
+    "phone",
+    "phonenumber",
+    "mobile",
+    "username",
+    "password",
+    "userId",
+    "equipmentUserId",
+    "realAddress",
+    "controlRealAddress",
+    "firstConnectRealAddress",
+    "onLineRealAddress",
+    "expected_addresses",
+    "replied_addresses",
+    "missing_addresses",
 }
 
 
@@ -38,6 +56,9 @@ async def async_get_config_entry_diagnostics(
     payload = {
         "entry": {"title": entry.title, "data": dict(entry.data), "options": dict(entry.options)},
         "coordinator": {
+            "transport_mode": coordinator.transport_mode,
+            "model_name": coordinator.model_name,
+            "control_mode": coordinator.control_mode,
             "last_update_success": coordinator.last_update_success,
             "update_interval_seconds": (
                 coordinator.update_interval.total_seconds() if coordinator.update_interval else None
@@ -45,6 +66,7 @@ async def async_get_config_entry_diagnostics(
             "stale_failures_limit": coordinator.stale_failures,
             "connection_failures": coordinator.connection_failures,
             "temp_channels": dict(coordinator.temp_channels),
+            "temp_on_minutes": coordinator.temp_on_minutes,
             "last_control": _last_control_summary(coordinator.last_control),
             "data": coordinator.data,
         },
